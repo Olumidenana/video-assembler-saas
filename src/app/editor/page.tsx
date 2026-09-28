@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
-import { IsolationStatus } from "./isolation-status";
+import { EditorLoader } from "./editor-loader";
 
 export const metadata: Metadata = { title: "Editor · Anti-Timeout" };
 
 export default function EditorPage() {
+  // Stage 3: read the signed-in user's subscription from Supabase.
+  const plan = "free";
+
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold">Editor</h1>
-      <IsolationStatus />
-      {/* Stage 2: FFmpeg.wasm upload / trim / stitch UI goes here. */}
+      <EditorLoader plan={plan} />
     </section>
   );
 }
