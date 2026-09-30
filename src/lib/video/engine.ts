@@ -1,4 +1,5 @@
 import type { FFmpeg } from "@ffmpeg/ffmpeg";
+import { ANALYSIS_FILES, buildAnalysisArgs, parseAnalysis, type ClipAnalysis } from "./analysis";
 import { clipDir, clipPath, parseLogTime } from "./commands";
 import { parseProbe } from "./probe";
 import type { MediaInfo } from "./types";
@@ -139,9 +140,37 @@ export class VideoEngine {
     clipIds: string[],
     args: string[],
     output: string,
-    { totalDuration, onProgress }: RunOptions,
+    options: RunOptions,
     files: Record<string, string> = {},
   ): Promise<Uint8Array> {
+    return this.execute(clipIds, args, options, files, [output], async (ffmpeg) => {
+      return (await ffmpeg.readFile(output)) as Uint8Array;
+    });
+  }
+
+  /**
+   * Runs a command whose useful output is text files (e.g. per-frame metadata
+   * written by the `metadata`/`ametadata` filters) and returns their contents.
+   * Missing files come back as empty strings.
+   */
+  runForText(clipIds: string[], args: string[], outputs: string[], options: RunOptions): Promise<Record<string, string>> {
+    return this.execute(clipIds, args, options, {}, outputs, async (ffmpeg) => {
+      const result: Record<string, string> = {};
+      for (const path of outputs) {
+        result[path] = (await ffmpeg.readFile(path, "utf8").catch(() => "")) as string;
+      }
+      return result;
+    });
+  }
+
+  private execute<T>(
+    clipIds: string[],
+    args: string[],
+    { totalDuration, onProgress }: RunOptions,
+    files: Record<string, string>,
+    outputs: string[],
+    collect: (ffmpeg: FFmpeg) => Promise<T>,
+  ): Promise<T> {
     return this.enqueue(async (ffmpeg) => {
       const tail: string[] = [];
       let lastOutput = Date.now();
@@ -160,10 +189,6 @@ export class VideoEngine {
         if (t !== null) report(t);
       });
       this.timeListeners.add(report);
-      const off = () => {
-        offLog();
-        this.timeListeners.delete(report);
-      };
       try {
         for (const [path, text] of Object.entries(files)) await ffmpeg.writeFile(path, text);
         const code = await ffmpeg.exec(args);
@@ -171,16 +196,25 @@ export class VideoEngine {
           throw new FFmpegExitError(`FFmpeg failed (exit ${code}).\n${tail.join("\n")}`);
         }
         onProgress?.(1);
-        const data = await ffmpeg.readFile(output);
-        return data as Uint8Array;
+        return await collect(ffmpeg);
       } finally {
         clearInterval(watchdog);
-        off();
-        for (const path of [output, ...Object.keys(files)]) {
+        offLog();
+        this.timeListeners.delete(report);
+        for (const path of [...outputs, ...Object.keys(files)]) {
           await ffmpeg.deleteFile(path).catch(() => {});
         }
       }
     }, clipIds);
+  }
+
+  /** Measures loudness and motion across a clip (for auto-edit). */
+  async analyze(clipId: string, info: MediaInfo, onProgress?: (ratio: number) => void): Promise<ClipAnalysis> {
+    const files = await this.runForText(clipId ? [clipId] : [], buildAnalysisArgs(clipId, info), Object.values(ANALYSIS_FILES), {
+      totalDuration: info.duration,
+      onProgress,
+    });
+    return parseAnalysis(files, info);
   }
 
   /** Stops whatever is running. Queued operations fail with CancelledError. */

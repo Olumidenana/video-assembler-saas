@@ -2,12 +2,17 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import { HardLink } from "@/components/hard-link";
+import { describeAction, parseCommandLocally, type EditorAction } from "@/lib/assistant/actions";
+import { applyActions, needsAnalysis } from "@/lib/assistant/apply";
 import { PLAN_LIMITS, type PlanId } from "@/lib/plans";
+import type { ClipAnalysis } from "@/lib/video/analysis";
+import type { Range } from "@/lib/video/highlights";
 import { canStreamCopy, isUntrimmed, needsDownscale } from "@/lib/video/commands";
 import { CancelledError, EngineCrashedError, VideoEngine } from "@/lib/video/engine";
 import { chooseMethod, exportParts, exportStitched, type ExportMethod, type ExportResult } from "@/lib/video/export";
 import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/timeline";
 import { DownloadIcon, UploadIcon } from "@/components/icons";
+import { AutoEditPanel, type AssistantMessage } from "./auto-edit-panel";
 import { clipColors } from "./clip-colors";
 import { formatBytes, formatTime } from "./format";
 import { Player } from "./player";
@@ -39,6 +44,9 @@ export function Editor({ plan }: { plan: PlanId }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const outputUrls = useRef<string[]>([]);
+  const analyses = useRef(new Map<string, ClipAnalysis>());
+  const [assistant, setAssistant] = useState<AssistantMessage | null>(null);
+  const [history, setHistory] = useState<Range[][]>([]);
 
   useEffect(() => {
     engine.load().then(
@@ -93,8 +101,105 @@ export function Editor({ plan }: { plan: PlanId }) {
     dispatch({ type: "removeSegment", id });
     if (!clipStillUsed) {
       URL.revokeObjectURL(timeline.clips[segment.clipId].url);
+      analyses.current.delete(segment.clipId);
       void engine.removeClip(segment.clipId).catch(() => {});
+      // Undo snapshots may refer to the removed video; they can't be restored now.
+      setHistory([]);
     }
+  }
+
+  /** Analyses every clip not seen before (loudness + motion), with combined progress. */
+  async function analyzeClips(clipIds: string[]) {
+    const todo = clipIds.filter((id) => !analyses.current.has(id));
+    const total = todo.reduce((sum, id) => sum + timeline.clips[id].info.duration, 0);
+    let done = 0;
+    for (const id of todo) {
+      const { info } = timeline.clips[id];
+      const report = (r: number) =>
+        setAssistant({ kind: "working", text: "Watching your videos for the best parts…", progress: total ? (done + r * info.duration) / total : null });
+      report(0);
+      analyses.current.set(id, await engine.analyze(id, info, report));
+      done += info.duration;
+    }
+  }
+
+  /** Runs editor actions (from the buttons, the local parser or the AI) as one undoable step. */
+  async function runActions(actions: EditorAction[], reply?: string) {
+    if (actions.length === 0) {
+      setAssistant({ kind: "error", text: reply ?? "I couldn't turn that into an edit. Try one of the examples." });
+      return;
+    }
+    const before = timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }));
+    try {
+      if (needsAnalysis(actions)) await analyzeClips(Object.keys(timeline.clips));
+      const edits = actions.filter((a) => a.type !== "export");
+      const next = edits.length ? applyActions(timeline, edits, analyses.current) : before;
+      if (edits.length) {
+        setHistory((h) => [...h.slice(-19), before]);
+        dispatch({ type: "replaceSegments", segments: next });
+      }
+      const total = next.reduce((sum, r) => sum + r.end - r.start, 0);
+      const summary =
+        reply ?? `Done: ${next.length} segment${next.length === 1 ? "" : "s"}, ${formatTime(total)} in total. Review below or export.`;
+      setAssistant({ kind: "done", text: summary, steps: actions.map(describeAction) });
+
+      const exportAction = actions.find((a) => a.type === "export");
+      if (exportAction?.type === "export") {
+        const exportMode = exportAction.mode ?? mode;
+        setMode(exportMode);
+        void startExport(
+          next.map((r) => ({ ...r, info: timeline.clips[r.clipId].info })),
+          exportMode,
+        );
+      }
+    } catch (err) {
+      setAssistant(
+        err instanceof CancelledError
+          ? { kind: "error", text: "Stopped." }
+          : { kind: "error", text: "Something went wrong while analysing. Please try again." },
+      );
+    }
+  }
+
+  async function runCommand(text: string) {
+    const local = parseCommandLocally(text);
+    if (local) return runActions(local);
+
+    setAssistant({ kind: "working", text: "Thinking…", progress: null });
+    const res = await fetch("/api/assistant", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        command: text,
+        timeline: {
+          clips: Object.values(timeline.clips).map((c) => ({ name: c.file.name, duration: c.info.duration })),
+          segments: timeline.segments.map((s) => ({ clip: timeline.clips[s.clipId].file.name, start: s.start, end: s.end })),
+        },
+      }),
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as
+      | { reply?: string; actions?: EditorAction[]; error?: string; message?: string; limit?: number }
+      | null;
+
+    if (res?.ok && body?.actions) return runActions(body.actions, body.reply);
+    const tips = 'Try "make a 30 second highlight", "remove silent parts" or "split into 15s parts".';
+    if (res?.status === 401) {
+      setAssistant({ kind: "error", text: `Sign in to use the AI assistant for custom requests. ${tips}`, link: { href: "/login?next=/editor", label: "Sign in" } });
+    } else if (res?.status === 429) {
+      setAssistant({ kind: "error", text: `You've used today's ${body?.limit ?? ""} AI requests. Simple commands still work. ${tips}` });
+    } else if (body?.error === "assistant" && body.message) {
+      setAssistant({ kind: "error", text: body.message });
+    } else {
+      setAssistant({ kind: "error", text: `I didn't catch that, and the AI assistant isn't available right now. ${tips}` });
+    }
+  }
+
+  function undo() {
+    const previous = history[history.length - 1];
+    if (!previous) return;
+    setHistory((h) => h.slice(0, -1));
+    dispatch({ type: "replaceSegments", segments: previous });
+    setAssistant(null);
   }
 
   function clearOutputs() {
@@ -102,10 +207,13 @@ export function Editor({ plan }: { plan: PlanId }) {
     outputUrls.current = [];
   }
 
-  async function startExport() {
+  async function startExport(items = toExportItems(timeline), exportMode: ExportMode = mode) {
+    if (exportMode === "stitch" && new Set(items.map((i) => i.clipId)).size > limits.maxStitchClips) {
+      setExportState({ status: "error", message: `The ${limits.label} plan stitches up to ${limits.maxStitchClips} videos. Upgrade to Pro for unlimited.` });
+      return;
+    }
     clearOutputs();
     setExportState({ status: "running", progress: 0 });
-    const items = toExportItems(timeline);
     const options = {
       maxShortSide: limits.maxShortSide,
       fastCut,
@@ -113,7 +221,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     };
     try {
       const results: ExportResult[] =
-        mode === "stitch" ? [await exportStitched(engine, items, options)] : await exportParts(engine, items, options);
+        exportMode === "stitch" ? [await exportStitched(engine, items, options)] : await exportParts(engine, items, options);
       const outputs = results.map((r) => {
         const url = URL.createObjectURL(r.blob);
         outputUrls.current.push(url);
@@ -146,7 +254,8 @@ export function Editor({ plan }: { plan: PlanId }) {
   const items = toExportItems(timeline);
   const totalBytes = Object.values(clips).reduce((sum, c) => sum + c.file.size, 0);
   const totalDuration = items.reduce((sum, i) => sum + (i.end - i.start), 0);
-  const overClipLimit = mode === "stitch" && segments.length > limits.maxStitchSegments;
+  const videosInUse = new Set(segments.map((s) => s.clipId)).size;
+  const overClipLimit = mode === "stitch" && videosInUse > limits.maxStitchClips;
   const downscaled = items.some((i) => needsDownscale(i.info, limits.maxShortSide));
   const copyCandidates = mode === "stitch" ? [items] : items.map((i) => [i]);
   const fastCutAvailable = copyCandidates.some(
@@ -223,6 +332,26 @@ export function Editor({ plan }: { plan: PlanId }) {
       )}
 
       {segments.length > 0 && (
+        <AutoEditPanel
+          disabled={engineStatus !== "ready" || running}
+          message={assistant}
+          canUndo={history.length > 0}
+          onHighlights={(seconds) => void runActions([{ type: "highlights", seconds }])}
+          onRemoveSilence={() => void runActions([{ type: "remove_silence" }])}
+          onCommand={(text) => void runCommand(text)}
+          onUndo={undo}
+          onExport={() => {
+            void startExport();
+            document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
+          }}
+          onCancel={() => {
+            engine.cancel();
+            void engine.load().catch(() => setEngineStatus("error"));
+          }}
+        />
+      )}
+
+      {segments.length > 0 && (
         <>
           <Timeline
             segments={segments}
@@ -268,7 +397,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       )}
 
       {segments.length > 0 && (
-        <section className="card flex flex-col gap-5 p-5 sm:p-6">
+        <section id="export" className="card flex scroll-mt-24 flex-col gap-5 p-5 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Export</h2>
             <span className="badge">
@@ -323,8 +452,8 @@ export function Editor({ plan }: { plan: PlanId }) {
 
           {overClipLimit && (
             <p className="notice notice-warn" data-testid="clip-limit">
-              The {limits.label} plan stitches up to {limits.maxStitchSegments} segments. Remove{" "}
-              {segments.length - limits.maxStitchSegments}, or{" "}
+              The {limits.label} plan stitches up to {limits.maxStitchClips} different videos (you&apos;re using{" "}
+              {videosInUse}). Remove some, or{" "}
               <HardLink href="/pricing" className="font-medium underline">
                 upgrade to Pro
               </HardLink>{" "}
@@ -333,7 +462,7 @@ export function Editor({ plan }: { plan: PlanId }) {
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={startExport} disabled={exportDisabled} className="btn btn-primary btn-lg">
+            <button type="button" onClick={() => void startExport()} disabled={exportDisabled} className="btn btn-primary btn-lg">
               {engineStatus === "loading" && !running ? "Loading engine…" : running ? "Exporting…" : "Export"}
             </button>
             {running && (

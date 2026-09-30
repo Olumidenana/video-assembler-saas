@@ -10,7 +10,7 @@ import { CheckoutButton } from "./checkout-button";
 export const metadata: Metadata = { title: "Pricing · Anti-Timeout" };
 
 const FREE_FEATURES = [
-  `Stitch up to ${PLAN_LIMITS.free.maxStitchSegments} clips per video`,
+  `Stitch up to ${PLAN_LIMITS.free.maxStitchClips} videos together`,
   `Exports up to ${PLAN_LIMITS.free.maxShortSide}p`,
   "Unlimited trimming and splitting",
   "Split into parts for Status / Reels",
@@ -18,7 +18,7 @@ const FREE_FEATURES = [
 ];
 
 const PRO_FEATURES = [
-  "Stitch unlimited clips",
+  "Stitch unlimited videos together",
   "Original-quality exports, up to 4K",
   "Everything in Free",
   "Support a small independent tool",

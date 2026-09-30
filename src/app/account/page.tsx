@@ -60,7 +60,7 @@ export default async function AccountPage({ searchParams }: PageProps<"/account"
         <p className="text-sm text-muted">
           {pro
             ? "Unlimited stitching and original-quality exports."
-            : `Up to ${PLAN_LIMITS.free.maxStitchSegments} clips per stitch and ${PLAN_LIMITS.free.maxShortSide}p exports.`}
+            : `Up to ${PLAN_LIMITS.free.maxStitchClips} videos per stitch and ${PLAN_LIMITS.free.maxShortSide}p exports.`}
         </p>
         {pro && renewal && <p className="text-sm text-muted">{renewal}</p>}
 

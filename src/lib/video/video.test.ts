@@ -182,6 +182,20 @@ describe("timelineReducer", () => {
     expect(none).toEqual({ clips: {}, segments: [], selectedId: null });
   });
 
+  it("replaces the edit list, clamping ranges and skipping unknown clips", () => {
+    const s = timelineReducer(withClip(), {
+      type: "replaceSegments",
+      segments: [
+        { clipId: "a", start: 1, end: 3 },
+        { clipId: "zzz", start: 0, end: 1 },
+        { clipId: "a", start: 8, end: 50 },
+      ],
+    });
+    expect(s.segments.map((x) => [x.start, x.end])).toEqual([[1, 3], [8, 10]]);
+    expect(s.selectedId).toBe(s.segments[0].id);
+    expect(Object.keys(s.clips)).toEqual(["a"]);
+  });
+
   it("reorders segments", () => {
     let s = withClip();
     s = timelineReducer(s, { type: "addClip", clip: clip("b") });

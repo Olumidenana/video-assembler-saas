@@ -14,7 +14,9 @@ export type TimelineAction =
   | { type: "setRange"; id: string; start?: number; end?: number }
   | { type: "split"; id: string; at: number }
   | { type: "splitEvery"; id: string; seconds: number }
-  | { type: "select"; id: string };
+  | { type: "select"; id: string }
+  /** Replaces the whole edit list (auto-edit, AI commands, undo). */
+  | { type: "replaceSegments"; segments: { clipId: string; start: number; end: number }[] };
 
 export const initialTimeline: TimelineState = { clips: {}, segments: [], selectedId: null };
 
@@ -108,6 +110,19 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
 
     case "select":
       return state.segments.some((s) => s.id === action.id) ? { ...state, selectedId: action.id } : state;
+
+    case "replaceSegments": {
+      const segments: Segment[] = action.segments
+        .filter((s) => state.clips[s.clipId])
+        .map((s) => {
+          const duration = state.clips[s.clipId].info.duration;
+          const start = clamp(round(s.start), 0, duration - MIN_SEGMENT_SECONDS);
+          const end = clamp(round(s.end), start + MIN_SEGMENT_SECONDS, duration);
+          return { id: newId(), clipId: s.clipId, start, end };
+        });
+      if (segments.length === 0) return state;
+      return { ...state, segments, selectedId: segments[0].id };
+    }
   }
 }
 

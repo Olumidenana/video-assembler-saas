@@ -11,6 +11,7 @@ monthly NGN subscription through Paystack, and Supabase handles accounts and pla
 - Supabase (auth + Postgres) via `@supabase/ssr`
 - Paystack inline checkout + Plans (monthly NGN subscriptions)
 - Google sign-in via Supabase Auth
+- AI auto-edit: in-browser highlight/silence detection, plus Claude for free-text commands
 
 ## Getting started
 
@@ -109,3 +110,49 @@ Paystack ──webhook──▶ POST /api/paystack/webhook ─▶ verify signatu
 
 Test card (Paystack test mode): `4084 0840 8408 4081`, any future expiry, CVV `408`, PIN `0000`,
 OTP `123456`.
+
+## Auto-edit and the AI assistant
+
+**Auto-edit runs entirely in the browser** (`src/lib/video/analysis.ts`, `highlights.ts`). One FFmpeg
+pass per video measures, every 0.5 s:
+
+- loudness (RMS dBFS of mono 16 kHz audio), which catches speech, laughter and music;
+- motion (frame-to-frame luma difference on a 96px, 4 fps copy), which catches action;
+- hard cuts (scene score), used to discount the motion spike a cut creates.
+
+"Best moments" ranks every half-second by a smoothed mix of the two (65% sound, 35% motion; motion
+alone when there's no audio), takes the best until the target length, joins neighbours and keeps
+source order. "Remove silences" keeps whatever is a few dB above each video's own noise floor. It's
+free, private and has no server cost.
+
+**Commands** (`src/lib/assistant`): the browser first tries a local parser for common phrasing
+("make a 30s highlight", "split into 15s parts", "cut the first 5 seconds", "…and export").
+Anything else goes to `POST /api/assistant`, which asks Claude (`claude-opus-5-5`, low effort,
+structured JSON output) to translate the request into the same small set of editor actions. The
+browser applies them with the same reducer as the manual controls, as one undoable step.
+
+- Requires sign-in, and `ANTHROPIC_API_KEY` on the server.
+- Daily limit per user: 15 (Free) / 300 (Pro), enforced atomically in Postgres
+  (`supabase/migrations/0002_ai_usage.sql`).
+- The server-side `fallbacks: "default"` option is enabled, so if Claude declines a request,
+  Anthropic retries it on its recommended fallback model.
+
+## Go-live checklist
+
+1. **Branch:** make `main` the production branch (GitHub default branch + Vercel → Settings →
+   Environments → Production → Branch Tracking).
+2. **Supabase:** run both migrations in `supabase/migrations/` (SQL Editor).
+3. **Google sign-in:** complete Google Auth Platform → Branding (home, privacy, terms links,
+   authorized domains) and **Publish app**.
+4. **Anthropic:** create an API key at console.anthropic.com, add `ANTHROPIC_API_KEY` (Secret) in
+   Vercel, and set a monthly spend limit in the Anthropic console.
+5. **Paystack live:** create the same plan in Live mode, then in Vercel (Production scope only) set
+   `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=pk_live_…`, `PAYSTACK_SECRET_KEY=sk_live_…`,
+   `PAYSTACK_PLAN_CODE=<live PLN_…>`. Set the **Live** webhook URL to
+   `https://<domain>/api/paystack/webhook`. Keep test keys on Preview.
+6. **Domain (optional):** add a custom domain in Vercel, then update `NEXT_PUBLIC_SITE_URL`,
+   Supabase Site URL / Redirect URLs, Google authorized origins/domains, and the Paystack webhook.
+7. **Vercel plan:** Hobby is non-commercial only. Upgrade to Pro before taking payments.
+8. **Smoke test in production:** sign in, upgrade with a real card (small plan or cancel
+   straight away), check Pro unlocks, then cancel from Account and confirm Pro remains until the
+   period ends.
