@@ -86,8 +86,8 @@ describe("POST /api/assistant", () => {
     allowed = false;
     const res = await call({ command: "make it shorter", timeline });
     expect(res.status).toBe(429);
-    expect(await res.json()).toMatchObject({ limit: 15 });
-    expect(rpc).toHaveBeenCalledWith("consume_ai_request", { p_user_id: "u1", p_limit: 15 });
+    expect(await res.json()).toMatchObject({ limit: 5 });
+    expect(rpc).toHaveBeenCalledWith("consume_ai_request", { p_user_id: "u1", p_limit: 5 });
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -96,6 +96,6 @@ describe("POST /api/assistant", () => {
     create.mockResolvedValue(reply({ reply: "Removed segment 2.", actions: [{ type: "remove_segment", seconds: null, segment: 2, start: null, end: null, to: null, mode: "none" }] }));
     const res = await call({ command: "drop the second part", timeline });
     expect(await res.json()).toEqual({ reply: "Removed segment 2.", actions: [{ type: "remove_segment", segment: 2 }] });
-    expect(rpc).toHaveBeenCalledWith("consume_ai_request", { p_user_id: "u2", p_limit: 300 });
+    expect(rpc).toHaveBeenCalledWith("consume_ai_request", { p_user_id: "u2", p_limit: 40 });
   });
 });

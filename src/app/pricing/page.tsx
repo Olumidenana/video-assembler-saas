@@ -64,7 +64,7 @@ export default async function PricingPage({ searchParams }: PageProps<"/pricing"
                 <span className="badge badge-pro">Most popular</span>
               </div>
               <p className="text-4xl font-semibold tracking-tight">
-                {price ?? "—"}
+                {price ?? <span className="text-2xl text-muted">Coming soon</span>}
                 {plan && <span className="text-base font-normal text-muted"> / {intervalLabel(plan.interval)}</span>}
               </p>
               <p className="text-sm text-muted">For creators who stitch long videos in full quality.</p>

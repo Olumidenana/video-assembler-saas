@@ -25,6 +25,8 @@ export const metadata: Metadata = {
   description,
   openGraph: { type: "website", siteName: "Anti-Timeout", title: "Anti-Timeout · AI cuts the best parts", description },
   twitter: { card: "summary_large_image", title: "Anti-Timeout · AI cuts the best parts", description },
+  icons: { apple: "/apple-touch-icon.png" },
+  appleWebApp: { capable: true, title: "Anti-Timeout", statusBarStyle: "black-translucent" },
 };
 
 export const viewport = { themeColor: "#0a0a0d" };

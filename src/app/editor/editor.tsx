@@ -4,8 +4,11 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import { HardLink } from "@/components/hard-link";
 import { describeAction, parseCommandLocally, type EditorAction } from "@/lib/assistant/actions";
 import { applyActions, needsAnalysis } from "@/lib/assistant/apply";
+import { buildSuggestions, type Suggestion } from "@/lib/assistant/suggestions";
+import { MAX_REMEMBERED_BYTES, projectStore } from "@/lib/video/project-store";
 import { PLAN_LIMITS, type PlanId } from "@/lib/plans";
 import type { ClipAnalysis } from "@/lib/video/analysis";
+import type { MediaInfo } from "@/lib/video/types";
 import type { Range } from "@/lib/video/highlights";
 import { canStreamCopy, isUntrimmed, needsDownscale } from "@/lib/video/commands";
 import { CancelledError, EngineCrashedError, VideoEngine } from "@/lib/video/engine";
@@ -22,6 +25,8 @@ import { SegmentList } from "./segment-list";
 const LARGE_INPUT_BYTES = 1.5 * 1024 ** 3;
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|mov|webm|mkv|avi|3gp|ts|mts)$/i;
 const MAX_LOG_LINES = 200;
+/** Longer videos are analysed on demand instead, so a queued export isn't held up. */
+const BACKGROUND_ANALYSIS_MAX_SECONDS = 600;
 
 type EngineStatus = "loading" | "ready" | "error";
 type ExportMode = "stitch" | "parts";
@@ -45,8 +50,16 @@ export function Editor({ plan }: { plan: PlanId }) {
   const [dragging, setDragging] = useState(false);
   const outputUrls = useRef<string[]>([]);
   const analyses = useRef(new Map<string, ClipAnalysis>());
+  const inflight = useRef(new Map<string, Promise<ClipAnalysis>>());
+  // Mirrors `analyses` for rendering (suggestions); the ref is for async logic.
+  const [analysisState, setAnalysisState] = useState<Record<string, ClipAnalysis>>({});
   const [assistant, setAssistant] = useState<AssistantMessage | null>(null);
   const [history, setHistory] = useState<Range[][]>([]);
+  const [restore, setRestore] = useState<{ savedAt: number; videos: number } | null>(null);
+  const [memory, setMemory] = useState<"off" | "saved" | "too-large" | "unavailable">("off");
+  // True once this session owns the saved project (so an untouched page never overwrites it).
+  const persist = useRef(false);
+  const storedBytes = useRef(0);
 
   useEffect(() => {
     engine.load().then(
@@ -61,6 +74,31 @@ export function Editor({ plan }: { plan: PlanId }) {
     };
   }, [engine]);
 
+  // Offer to restore the last project saved on this device.
+  useEffect(() => {
+    if (!projectStore.available()) return;
+    projectStore
+      .load()
+      .then((saved) => saved && setRestore({ savedAt: saved.project.savedAt, videos: saved.clips.length }))
+      .catch(() => {});
+  }, []);
+
+  // Remember edits (debounced) so a reload or closed tab doesn't lose work.
+  useEffect(() => {
+    if (!persist.current) return;
+    const timer = setTimeout(() => {
+      void projectStore
+        .saveProject({
+          clipIds: Object.keys(timeline.clips),
+          segments: timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end })),
+          mode,
+          savedAt: Date.now(),
+        })
+        .catch(() => setMemory("unavailable"));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [timeline, mode]);
+
   const running = exportState.status === "running";
   useEffect(() => {
     if (!running) return;
@@ -69,7 +107,72 @@ export function Editor({ plan }: { plan: PlanId }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [running]);
 
+  function rememberAnalysis(id: string, analysis: ClipAnalysis, save = true) {
+    analyses.current.set(id, analysis);
+    setAnalysisState((prev) => ({ ...prev, [id]: analysis }));
+    if (save && persist.current) void projectStore.saveAnalysis(id, analysis).catch(() => {});
+  }
+
+  /** Analyses a clip once; concurrent callers share the same run. */
+  function getAnalysis(id: string, info: MediaInfo, onProgress?: (r: number) => void): Promise<ClipAnalysis> {
+    const done = analyses.current.get(id);
+    if (done) return Promise.resolve(done);
+    let run = inflight.current.get(id);
+    if (!run) {
+      run = engine.analyze(id, info, onProgress).then((a) => {
+        rememberAnalysis(id, a);
+        return a;
+      });
+      inflight.current.set(id, run);
+      void run.catch(() => {}).finally(() => inflight.current.delete(id));
+    }
+    return run;
+  }
+
+  function rememberClip(id: string, file: File, info: MediaInfo) {
+    if (!projectStore.available()) return setMemory("unavailable");
+    if (storedBytes.current + file.size > MAX_REMEMBERED_BYTES) return setMemory("too-large");
+    storedBytes.current += file.size;
+    persist.current = true;
+    void navigator.storage?.persist?.().catch(() => {});
+    projectStore
+      .saveClip({ id, name: file.name, type: file.type, blob: file, info })
+      .then(() => setMemory((m) => (m === "too-large" ? m : "saved")))
+      .catch(() => setMemory("unavailable"));
+  }
+
+  async function startFresh() {
+    setRestore(null);
+    await projectStore.clear().catch(() => {});
+  }
+
+  async function restoreProject() {
+    const saved = await projectStore.load().catch(() => null);
+    setRestore(null);
+    if (!saved) return;
+    persist.current = true;
+    setPending(saved.clips.map((c) => c.name));
+    for (const stored of saved.clips) {
+      const file = new File([stored.blob], stored.name, { type: stored.type });
+      try {
+        const info = await engine.addClip(stored.id, file);
+        dispatch({ type: "addClip", clip: { id: stored.id, file, info, url: URL.createObjectURL(file) } });
+        storedBytes.current += file.size;
+        if (stored.analysis) rememberAnalysis(stored.id, stored.analysis, false);
+        else if (info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS) void getAnalysis(stored.id, info).catch(() => {});
+      } catch {
+        void engine.removeClip(stored.id).catch(() => {});
+      }
+    }
+    dispatch({ type: "replaceSegments", segments: saved.project.segments });
+    setMode(saved.project.mode);
+    setPending([]);
+    setMemory("saved");
+  }
+
   async function addFiles(files: File[]) {
+    // Adding new videos while a saved project is on offer means starting fresh.
+    if (restore) await startFresh();
     for (const file of files) {
       if (!file.type.startsWith("video/") && !VIDEO_EXTENSIONS.test(file.name)) {
         setErrors((e) => [...e, `${file.name}: not a video file.`]);
@@ -80,6 +183,9 @@ export function Editor({ plan }: { plan: PlanId }) {
       try {
         const info = await engine.addClip(id, file);
         dispatch({ type: "addClip", clip: { id, file, info, url: URL.createObjectURL(file) } });
+        rememberClip(id, file, info);
+        // Analyse in the background so suggestions appear and auto-edit is instant.
+        if (info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS) void getAnalysis(id, info).catch(() => {});
       } catch (err) {
         void engine.removeClip(id).catch(() => {});
         if (!(err instanceof CancelledError)) {
@@ -102,6 +208,13 @@ export function Editor({ plan }: { plan: PlanId }) {
     if (!clipStillUsed) {
       URL.revokeObjectURL(timeline.clips[segment.clipId].url);
       analyses.current.delete(segment.clipId);
+      setAnalysisState((prev) => {
+        const next = { ...prev };
+        delete next[segment.clipId];
+        return next;
+      });
+      storedBytes.current = Math.max(0, storedBytes.current - timeline.clips[segment.clipId].file.size);
+      void projectStore.deleteClip(segment.clipId).catch(() => {});
       void engine.removeClip(segment.clipId).catch(() => {});
       // Undo snapshots may refer to the removed video; they can't be restored now.
       setHistory([]);
@@ -118,7 +231,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       const report = (r: number) =>
         setAssistant({ kind: "working", text: "Watching your videos for the best parts…", progress: total ? (done + r * info.duration) / total : null });
       report(0);
-      analyses.current.set(id, await engine.analyze(id, info, report));
+      await getAnalysis(id, info, report);
       done += info.duration;
     }
   }
@@ -194,6 +307,11 @@ export function Editor({ plan }: { plan: PlanId }) {
     }
   }
 
+  async function applySuggestion(s: Suggestion) {
+    await runActions(s.actions);
+    if (s.mode) setMode(s.mode);
+  }
+
   function undo() {
     const previous = history[history.length - 1];
     if (!previous) return;
@@ -267,10 +385,50 @@ export function Editor({ plan }: { plan: PlanId }) {
   const exportDisabled = segments.length === 0 || overClipLimit || running || engineStatus === "error";
 
   const colors = clipColors(Object.keys(clips));
+  const suggestions = buildSuggestions({
+    clips: Object.values(clips).map((c) => ({ id: c.id, duration: c.info.duration, width: c.info.width, height: c.info.height })),
+    segments,
+    analyses: analysisState,
+  });
+  const analysing = segments.some(
+    (s) => !analysisState[s.clipId] && clips[s.clipId].info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS,
+  );
 
   return (
     <div className="flex flex-col gap-6">
-      <EngineBadge status={engineStatus} mode={engine.mode} />
+      <div className="flex flex-wrap items-center gap-2">
+        <EngineBadge status={engineStatus} mode={engine.mode} />
+        {memory === "saved" && (
+          <p className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-muted" data-testid="memory-status">
+            ✓ Saved on this device. Pick up where you left off anytime.
+          </p>
+        )}
+        {memory === "too-large" && (
+          <p className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-muted">
+            This project is too large to remember after you close the tab.
+          </p>
+        )}
+      </div>
+
+      {restore && (
+        <div className="card flex flex-wrap items-center justify-between gap-4 border-brand/40 p-5" data-testid="restore">
+          <div>
+            <p className="font-medium">Welcome back! Continue where you left off?</p>
+            <p className="text-sm text-muted">
+              Your project from {timeAgo(restore.savedAt)} ({restore.videos} video{restore.videos === 1 ? "" : "s"}) is saved on this
+              device.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className="btn btn-ghost" onClick={() => void startFresh()}>
+              Start fresh
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => void restoreProject()} disabled={engineStatus === "error"}>
+              Restore project
+            </button>
+          </div>
+        </div>
+      )}
 
       <label
         onDragOver={(e) => {
@@ -336,6 +494,9 @@ export function Editor({ plan }: { plan: PlanId }) {
           disabled={engineStatus !== "ready" || running}
           message={assistant}
           canUndo={history.length > 0}
+          suggestions={suggestions}
+          analysing={analysing}
+          onSuggestion={(sg) => void applySuggestion(sg)}
           onHighlights={(seconds) => void runActions([{ type: "highlights", seconds }])}
           onRemoveSilence={() => void runActions([{ type: "remove_silence" }])}
           onCommand={(text) => void runCommand(text)}
@@ -558,6 +719,16 @@ function Timeline({
       })}
     </div>
   );
+}
+
+function timeAgo(ms: number): string {
+  const minutes = Math.round((Date.now() - ms) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function EngineBadge({ status, mode }: { status: EngineStatus; mode: VideoEngine["mode"] }) {

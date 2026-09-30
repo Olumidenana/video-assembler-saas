@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ArrowRightIcon, SparkIcon } from "@/components/icons";
+import type { Suggestion } from "@/lib/assistant/suggestions";
 
 export type AssistantMessage =
   | { kind: "working"; text: string; progress: number | null }
@@ -12,6 +13,10 @@ interface AutoEditPanelProps {
   disabled: boolean;
   message: AssistantMessage | null;
   canUndo: boolean;
+  suggestions: Suggestion[];
+  /** Videos are still being analysed in the background. */
+  analysing: boolean;
+  onSuggestion: (s: Suggestion) => void;
   onHighlights: (seconds: number | null) => void;
   onRemoveSilence: () => void;
   onCommand: (text: string) => void;
@@ -62,6 +67,34 @@ export function AutoEditPanel(props: AutoEditPanelProps) {
             </button>
           )}
         </div>
+
+        {(props.suggestions.length > 0 || props.analysing) && (
+          <div className="relative flex flex-col gap-2" data-testid="suggestions">
+            <p className="text-xs font-medium uppercase tracking-wider text-subtle">Suggested for your video</p>
+            {props.suggestions.length > 0 ? (
+              <div className="grid gap-2 sm:grid-cols-3">
+                {props.suggestions.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    disabled={locked}
+                    onClick={() => props.onSuggestion(s)}
+                    className="group flex flex-col gap-1 rounded-xl border border-brand/30 bg-brand/[0.07] p-3 text-left transition-colors hover:border-brand/70 hover:bg-brand/[0.12] disabled:opacity-40"
+                  >
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <SparkIcon size={14} className="text-brand" /> {s.label}
+                    </span>
+                    <span className="text-xs text-muted">{s.detail}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="flex items-center gap-2 text-sm text-muted">
+                <span className="size-2 animate-pulse rounded-full bg-brand" /> Looking through your videos for ideas…
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="relative grid gap-3 md:grid-cols-2">
           <div className="flex flex-col gap-3 rounded-xl border border-line bg-bg/60 p-4">

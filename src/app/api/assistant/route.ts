@@ -5,8 +5,12 @@ import { AssistantError, planActions } from "@/lib/assistant/claude";
 import { getViewer } from "@/lib/billing/account";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-/** AI requests per user per day. Simple commands are parsed in the browser and don't count. */
-const DAILY_LIMIT = { free: 15, pro: 300 };
+/**
+ * AI requests per user per day. Each costs roughly 1–2 US cents, so these keep
+ * even the heaviest Pro user well below their subscription price. Simple
+ * commands and auto-edit run in the browser and don't count.
+ */
+const DAILY_LIMIT = { free: 5, pro: 40 };
 
 export async function POST(request: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {

@@ -132,10 +132,23 @@ structured JSON output) to translate the request into the same small set of edit
 browser applies them with the same reducer as the manual controls, as one undoable step.
 
 - Requires sign-in, and `ANTHROPIC_API_KEY` on the server.
-- Daily limit per user: 15 (Free) / 300 (Pro), enforced atomically in Postgres
+- Daily limit per user: 5 (Free) / 40 (Pro), enforced atomically in Postgres
   (`supabase/migrations/0002_ai_usage.sql`).
 - The server-side `fallbacks: "default"` option is enabled, so if Claude declines a request,
   Anthropic retries it on its recommended fallback model.
+
+## Project memory, suggestions and mobile
+
+- **Memory** (`src/lib/video/project-store.ts`): videos, edits and analyses are saved in the
+  browser's IndexedDB on the user's device (projects up to 1.5 GB). Reopening the editor offers
+  "Restore project" or "Start fresh". Nothing is uploaded.
+- **Suggestions** (`src/lib/assistant/suggestions.ts`): each video is analysed in the background
+  right after it's added (up to 10 min long; longer ones on demand), and the editor offers
+  one-click edits: remove N seconds of silence, a 30/60s highlight sized for Reels/Status, or
+  splitting long segments into 60s parts.
+- **Mobile**: responsive throughout, and installable ("Add to Home Screen") via
+  `src/app/manifest.ts` + icons in `public/`. Phones have less memory, so very long videos are
+  best edited on a computer.
 
 ## Go-live checklist
 
