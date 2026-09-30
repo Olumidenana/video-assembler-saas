@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ScissorsIcon, SplitIcon } from "@/components/icons";
 import { MIN_SEGMENT_SECONDS } from "@/lib/video/commands";
 import type { Clip, Segment } from "@/lib/video/types";
 import { formatTime } from "./format";
@@ -34,16 +35,15 @@ export function Player({ clip, segment, onSetStart, onSetEnd, onSplit, onSplitEv
   }, [segment.id, segment.start, clip.url]);
 
   const canSplit = time - segment.start >= MIN_SEGMENT_SECONDS && segment.end - time >= MIN_SEGMENT_SECONDS;
-  const button = "rounded-md border border-foreground/20 px-3 py-1.5 text-sm disabled:opacity-40";
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="card flex flex-col gap-4 p-3 sm:p-4">
       <video
         ref={ref}
         src={clip.url}
         controls
         playsInline
-        className="aspect-video w-full rounded-lg bg-black"
+        className="aspect-video w-full rounded-xl bg-black"
         onError={() => setPreviewFailed(true)}
         onTimeUpdate={(e) => {
           const video = e.currentTarget;
@@ -63,38 +63,40 @@ export function Player({ clip, segment, onSetStart, onSetEnd, onSplit, onSplitEv
       />
 
       {previewFailed && (
-        <p className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400" data-testid="preview-failed">
+        <p className="notice notice-warn" data-testid="preview-failed">
           Your browser can&apos;t preview this format (common with iPhone HEVC or MKV files), but it can still be
           exported. Type the start and end times in the segment list instead.
         </p>
       )}
 
-      <p className="text-sm text-foreground/70">
-        Playhead <span className="font-mono">{formatTime(time)}</span> · Segment{" "}
-        <span className="font-mono">
-          {formatTime(segment.start)}–{formatTime(segment.end)}
-        </span>
-      </p>
-
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className={button} onClick={() => onSetStart(time)}>
-          Set start here
-        </button>
-        <button type="button" className={button} onClick={() => onSetEnd(time)}>
-          Set end here
-        </button>
-        <button type="button" className={button} disabled={!canSplit} onClick={() => onSplit(time)}>
-          Split here
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+        <p className="text-sm text-muted">
+          <span className="font-mono text-fg">{formatTime(time)}</span>
+          <span className="mx-2 text-subtle">·</span>
+          segment <span className="font-mono">{formatTime(segment.start)}</span> –{" "}
+          <span className="font-mono">{formatTime(segment.end)}</span>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onSetStart(time)}>
+            Set start here
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onSetEnd(time)}>
+            Set end here
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={!canSplit} onClick={() => onSplit(time)}>
+            <ScissorsIcon size={15} /> Split here
+          </button>
+        </div>
       </div>
 
       <form
-        className="flex flex-wrap items-center gap-2 text-sm"
+        className="flex flex-wrap items-center gap-2 border-t border-line px-1 pt-4 text-sm text-muted"
         onSubmit={(e) => {
           e.preventDefault();
           if (partSeconds > 0) onSplitEvery(partSeconds);
         }}
       >
+        <SplitIcon size={16} className="text-subtle" />
         <label htmlFor="part-seconds">Split into parts of</label>
         <input
           id="part-seconds"
@@ -103,12 +105,13 @@ export function Player({ clip, segment, onSetStart, onSetEnd, onSplit, onSplitEv
           step={1}
           value={partSeconds}
           onChange={(e) => setPartSeconds(Number(e.target.value))}
-          className="w-20 rounded-md border border-foreground/20 bg-transparent px-2 py-1"
+          className="input w-20 font-mono"
         />
         <span>seconds</span>
-        <button type="submit" className={button}>
+        <button type="submit" className="btn btn-secondary btn-sm">
           Split
         </button>
+        <span className="text-xs text-subtle">Tip: 30s fits WhatsApp Status, 60s fits Reels and Shorts.</span>
       </form>
     </div>
   );

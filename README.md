@@ -9,7 +9,8 @@ monthly NGN subscription through Paystack, and Supabase handles accounts and pla
 - Next.js 16 (App Router, TypeScript, Tailwind v4) on Vercel
 - `@ffmpeg/ffmpeg` 0.12 with self-hosted cores (`@ffmpeg/core-mt` and `@ffmpeg/core`)
 - Supabase (auth + Postgres) via `@supabase/ssr`
-- Paystack inline checkout + Plans (subscriptions)
+- Paystack inline checkout + Plans (monthly NGN subscriptions)
+- Google sign-in via Supabase Auth
 
 ## Getting started
 
@@ -72,3 +73,39 @@ Points worth knowing before changing it:
   silence.
 - **Plan limits** live in `src/lib/plans.ts`. They are enforced in the browser, which is inherent
   to client-side processing. What a paid plan protects is convenience, not secrecy.
+
+## Accounts and billing (`src/lib/billing`, `src/app/api`)
+
+```
+Pricing page ──POST /api/paystack/initialize──▶ Paystack (creates transaction for PLAN_CODE)
+     │                                              │
+     └─ inline popup (card) ─ onSuccess ─▶ POST /api/paystack/verify ─▶ re-fetch tx from Paystack,
+                                                                         check user + plan, grant Pro
+Paystack ──webhook──▶ POST /api/paystack/webhook ─▶ verify signature ─▶ re-read customer's
+                                                                         subscriptions, update row
+```
+
+- **One table**, `public.subscriptions` (see `supabase/migrations/0001_subscriptions.sql`). Users can
+  only *read* their own row (RLS). Only the server writes, using `SUPABASE_SECRET_KEY`.
+- **Webhooks are triggers, not data.** On every relevant event we re-read the customer's
+  subscriptions from Paystack, so late or out-of-order events can't leave a wrong state.
+- **Pro =** status `active`, `non-renewing` (cancelled but paid up) or `attention` (renewal retrying),
+  and `current_period_end` in the future, plus a 24-hour grace period (`status.ts`).
+- The price shown on `/pricing` is read from the Paystack plan, so change it in Paystack, not in code.
+- The Paystack popup only works on non-isolated pages. It lives on `/pricing` and returns to the
+  editor with a full page load.
+
+### One-time setup
+
+1. **Supabase → SQL Editor**: run `supabase/migrations/0001_subscriptions.sql`.
+2. **Supabase → Authentication → Sign In / Providers → Google**: enable with the Client ID and
+   secret from Google Cloud (OAuth client, type "Web application", redirect URI = the callback URL
+   Supabase shows).
+3. **Supabase → Authentication → URL Configuration**: Site URL = your production URL; Redirect URLs =
+   `https://<your-domain>/**` and `http://localhost:3000/**`.
+4. **Paystack (Test mode) → Settings → API Keys & Webhooks → Test Webhook URL**:
+   `https://<your-domain>/api/paystack/webhook`
+5. Environment variables: see `.env.example`.
+
+Test card (Paystack test mode): `4084 0840 8408 4081`, any future expiry, CVV `408`, PIN `0000`,
+OTP `123456`.

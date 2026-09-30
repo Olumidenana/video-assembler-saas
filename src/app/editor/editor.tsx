@@ -7,6 +7,8 @@ import { canStreamCopy, isUntrimmed, needsDownscale } from "@/lib/video/commands
 import { CancelledError, EngineCrashedError, VideoEngine } from "@/lib/video/engine";
 import { chooseMethod, exportParts, exportStitched, type ExportMethod, type ExportResult } from "@/lib/video/export";
 import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/timeline";
+import { DownloadIcon, UploadIcon } from "@/components/icons";
+import { clipColors } from "./clip-colors";
 import { formatBytes, formatTime } from "./format";
 import { Player } from "./player";
 import { SegmentList } from "./segment-list";
@@ -155,6 +157,8 @@ export function Editor({ plan }: { plan: PlanId }) {
   );
   const exportDisabled = segments.length === 0 || overClipLimit || running || engineStatus === "error";
 
+  const colors = clipColors(Object.keys(clips));
+
   return (
     <div className="flex flex-col gap-6">
       <EngineBadge status={engineStatus} mode={engine.mode} />
@@ -170,13 +174,16 @@ export function Editor({ plan }: { plan: PlanId }) {
           setDragging(false);
           void addFiles([...e.dataTransfer.files]);
         }}
-        className={`flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 border-dashed p-8 text-center ${
-          dragging ? "border-foreground/60 bg-foreground/5" : "border-foreground/20"
-        }`}
+        className={`group flex cursor-pointer flex-col items-center gap-3 rounded-2xl border border-dashed text-center transition-colors ${
+          segments.length > 0 ? "p-5 sm:flex-row sm:justify-center sm:text-left" : "p-10 sm:p-14"
+        } ${dragging ? "border-brand bg-brand/10" : "border-line-strong bg-surface/60 hover:border-brand/60 hover:bg-surface"}`}
       >
-        <span className="font-medium">Drop videos here or click to choose</span>
-        <span className="text-sm text-foreground/60">
-          MP4, MOV or WebM. Files stay on your device; nothing is uploaded.
+        <span className="grid size-11 place-items-center rounded-xl bg-brand/12 text-brand transition-transform group-hover:scale-105">
+          <UploadIcon size={20} />
+        </span>
+        <span className="flex flex-col gap-0.5">
+          <span className="font-medium">{segments.length > 0 ? "Add more videos" : "Drop videos here or click to choose"}</span>
+          <span className="text-sm text-muted">MP4, MOV or WebM. Files stay on your device; nothing is uploaded.</span>
         </span>
         <input
           type="file"
@@ -192,102 +199,130 @@ export function Editor({ plan }: { plan: PlanId }) {
       </label>
 
       {pending.length > 0 && (
-        <p className="text-sm text-foreground/70" role="status">
+        <p className="notice notice-info animate-pulse" role="status">
           Reading {pending.join(", ")}…
         </p>
       )}
       {errors.length > 0 && (
-        <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400" role="alert">
-          {errors.map((e, i) => (
-            <p key={i}>{e}</p>
-          ))}
-          <button type="button" className="mt-1 underline" onClick={() => setErrors([])}>
+        <div className="notice notice-danger flex items-start justify-between gap-3" role="alert">
+          <div>
+            {errors.map((e, i) => (
+              <p key={i}>{e}</p>
+            ))}
+          </div>
+          <button type="button" className="shrink-0 underline" onClick={() => setErrors([])}>
             Dismiss
           </button>
         </div>
       )}
       {totalBytes > LARGE_INPUT_BYTES && (
-        <p className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-          You&apos;ve added {formatBytes(totalBytes)} of video. Large exports can crash the tab, especially on
-          phones. If that happens, export in smaller batches.
+        <p className="notice notice-warn">
+          You&apos;ve added {formatBytes(totalBytes)} of video. Large exports can crash the tab, especially on phones. If
+          that happens, export in smaller batches.
         </p>
       )}
 
       {segments.length > 0 && (
-        <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
-          <div>
-            {selected && (
-              <Player
-                key={selected.clipId}
-                clip={clips[selected.clipId]}
-                segment={selected}
-                onSetStart={(start) => dispatch({ type: "setRange", id: selected.id, start })}
-                onSetEnd={(end) => dispatch({ type: "setRange", id: selected.id, end })}
-                onSplit={(at) => dispatch({ type: "split", id: selected.id, at })}
-                onSplitEvery={(seconds) => dispatch({ type: "splitEvery", id: selected.id, seconds })}
-              />
-            )}
-          </div>
-          <SegmentList
+        <>
+          <Timeline
             segments={segments}
-            clips={clips}
+            colors={colors}
             selectedId={selectedId}
+            total={totalDuration}
             onSelect={(id) => dispatch({ type: "select", id })}
-            onMove={(id, delta) => dispatch({ type: "move", id, delta })}
-            onRemove={removeSegment}
-            onSetRange={(id, range) => dispatch({ type: "setRange", id, ...range })}
           />
-        </div>
+          <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
+            <div>
+              {selected && (
+                <Player
+                  key={selected.clipId}
+                  clip={clips[selected.clipId]}
+                  segment={selected}
+                  onSetStart={(start) => dispatch({ type: "setRange", id: selected.id, start })}
+                  onSetEnd={(end) => dispatch({ type: "setRange", id: selected.id, end })}
+                  onSplit={(at) => dispatch({ type: "split", id: selected.id, at })}
+                  onSplitEvery={(seconds) => dispatch({ type: "splitEvery", id: selected.id, seconds })}
+                />
+              )}
+            </div>
+            <div className="flex flex-col gap-3">
+              <h2 className="flex items-center justify-between text-sm font-medium text-muted">
+                Segments
+                <span className="font-mono text-xs text-subtle">
+                  {segments.length} · {formatTime(totalDuration)}
+                </span>
+              </h2>
+              <SegmentList
+                segments={segments}
+                clips={clips}
+                colors={colors}
+                selectedId={selectedId}
+                onSelect={(id) => dispatch({ type: "select", id })}
+                onMove={(id, delta) => dispatch({ type: "move", id, delta })}
+                onRemove={removeSegment}
+                onSetRange={(id, range) => dispatch({ type: "setRange", id, ...range })}
+              />
+            </div>
+          </div>
+        </>
       )}
 
       {segments.length > 0 && (
-        <section className="flex flex-col gap-4 rounded-xl border border-foreground/15 p-4">
-          <h2 className="font-semibold">Export</h2>
+        <section className="card flex flex-col gap-5 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">Export</h2>
+            <span className="badge">
+              {methods.size === 1 && methods.has("copy")
+                ? "Fast join · no re-encode"
+                : methods.has("copy")
+                  ? "Mix of fast copy and re-encode"
+                  : "Re-encode · frame-accurate"}
+            </span>
+          </div>
 
-          <fieldset className="flex flex-wrap gap-4 text-sm" disabled={running}>
+          <fieldset className="grid gap-3 sm:grid-cols-2" disabled={running}>
             <legend className="sr-only">Export mode</legend>
-            <label className="flex items-center gap-2">
-              <input type="radio" name="mode" checked={mode === "stitch"} onChange={() => setMode("stitch")} />
-              Stitch into one video
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="radio" name="mode" checked={mode === "parts"} onChange={() => setMode("parts")} />
-              Save each segment as its own file
-            </label>
+            <ModeOption
+              checked={mode === "stitch"}
+              onChange={() => setMode("stitch")}
+              title="Stitch into one video"
+              body="Join every segment, in order, into a single MP4."
+            />
+            <ModeOption
+              checked={mode === "parts"}
+              onChange={() => setMode("parts")}
+              title="Save each segment as its own file"
+              body="One MP4 per segment. Great after splitting into parts."
+            />
           </fieldset>
 
           {fastCutAvailable && (
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" checked={fastCut} disabled={running} onChange={(e) => setFastCut(e.target.checked)} className="mt-1" />
+            <label className="flex items-start gap-3 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={fastCut}
+                disabled={running}
+                onChange={(e) => setFastCut(e.target.checked)}
+                className="mt-1 accent-brand"
+              />
               <span>
-                Fast cut (no re-encode, no quality loss). Cuts snap to the nearest keyframe, so they can be off by
-                up to a couple of seconds.
+                <span className="text-fg">Fast cut</span> (no re-encode, no quality loss). Cuts snap to the nearest
+                keyframe, so they can be off by up to a couple of seconds.
               </span>
             </label>
           )}
 
-          <ul className="flex flex-col gap-1 text-sm text-foreground/70">
-            <li>
-              {segments.length} segment{segments.length === 1 ? "" : "s"}, {formatTime(totalDuration)} total ·{" "}
-              {methods.size === 1 && methods.has("copy")
-                ? "fast join (no re-encode)"
-                : methods.has("copy")
-                  ? "mix of fast copy and re-encode"
-                  : "re-encode (frame-accurate)"}
-            </li>
-            {downscaled && (
-              <li>
-                {limits.label} exports are capped at {limits.maxShortSide}p.{" "}
-                <HardLink href="/pricing" className="underline">
-                  Go Pro for full resolution
-                </HardLink>
-                .
-              </li>
-            )}
-          </ul>
+          {downscaled && (
+            <p className="text-sm text-muted">
+              {limits.label} exports are capped at {limits.maxShortSide}p.{" "}
+              <HardLink href="/pricing" className="text-brand hover:underline">
+                Go Pro for full resolution
+              </HardLink>
+            </p>
+          )}
 
           {overClipLimit && (
-            <p className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400" data-testid="clip-limit">
+            <p className="notice notice-warn" data-testid="clip-limit">
               The {limits.label} plan stitches up to {limits.maxStitchSegments} segments. Remove{" "}
               {segments.length - limits.maxStitchSegments}, or{" "}
               <HardLink href="/pricing" className="font-medium underline">
@@ -298,19 +333,20 @@ export function Editor({ plan }: { plan: PlanId }) {
           )}
 
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={startExport}
-              disabled={exportDisabled}
-              className="rounded-md bg-foreground px-5 py-2.5 font-medium text-background disabled:opacity-40"
-            >
-              {engineStatus === "loading" && !running ? "Loading engine…" : "Export"}
+            <button type="button" onClick={startExport} disabled={exportDisabled} className="btn btn-primary btn-lg">
+              {engineStatus === "loading" && !running ? "Loading engine…" : running ? "Exporting…" : "Export"}
             </button>
             {running && (
               <>
-                <progress className="h-2 flex-1" value={exportState.progress} max={1} />
+                <div className="h-2 min-w-32 flex-1 overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2 transition-[width] duration-300"
+                    style={{ width: `${Math.round(exportState.progress * 100)}%` }}
+                  />
+                </div>
+                <progress className="sr-only" value={exportState.progress} max={1} />
                 <span className="w-12 text-right font-mono text-sm">{Math.round(exportState.progress * 100)}%</span>
-                <button type="button" onClick={cancelExport} className="rounded-md border border-foreground/20 px-3 py-2 text-sm">
+                <button type="button" onClick={cancelExport} className="btn btn-ghost">
                   Cancel
                 </button>
               </>
@@ -318,10 +354,10 @@ export function Editor({ plan }: { plan: PlanId }) {
           </div>
 
           {exportState.status === "idle" && exportState.message && (
-            <p className="text-sm text-foreground/70">{exportState.message}</p>
+            <p className="text-sm text-muted">{exportState.message}</p>
           )}
           {exportState.status === "error" && (
-            <p className="text-sm text-red-700 dark:text-red-400" role="alert">
+            <p className="notice notice-danger" role="alert">
               {exportState.message}
             </p>
           )}
@@ -330,11 +366,67 @@ export function Editor({ plan }: { plan: PlanId }) {
       )}
 
       <details className="text-sm">
-        <summary className="cursor-pointer text-foreground/60">FFmpeg log</summary>
-        <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-foreground/5 p-3 text-xs" data-testid="ffmpeg-log">
+        <summary className="cursor-pointer text-subtle hover:text-muted">FFmpeg log</summary>
+        <pre
+          className="mt-2 max-h-64 overflow-auto rounded-xl border border-line bg-surface p-3 font-mono text-xs text-muted"
+          data-testid="ffmpeg-log"
+        >
           {logs.join("\n") || "No output yet."}
         </pre>
       </details>
+    </div>
+  );
+}
+
+function ModeOption({ checked, onChange, title, body }: { checked: boolean; onChange: () => void; title: string; body: string }) {
+  return (
+    <label
+      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
+        checked ? "border-brand/60 bg-brand/[0.07]" : "border-line hover:border-line-strong"
+      }`}
+    >
+      <input type="radio" name="mode" checked={checked} onChange={onChange} className="mt-1 accent-brand" />
+      <span className="flex flex-col gap-0.5">
+        <span className="text-sm font-medium">{title}</span>
+        <span className="text-xs text-muted">{body}</span>
+      </span>
+    </label>
+  );
+}
+
+/** Proportional strip of segments; click one to select it. */
+function Timeline({
+  segments,
+  colors,
+  selectedId,
+  total,
+  onSelect,
+}: {
+  segments: { id: string; clipId: string; start: number; end: number }[];
+  colors: Record<string, string>;
+  selectedId: string | null;
+  total: number;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="card flex h-16 gap-1 p-1.5" aria-label="Timeline">
+      {segments.map((s, i) => {
+        const selected = s.id === selectedId;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onSelect(s.id)}
+            title={`Segment ${i + 1} · ${formatTime(s.end - s.start)}`}
+            className={`relative min-w-3 overflow-hidden rounded-lg transition-[opacity,box-shadow] ${
+              selected ? "opacity-100 ring-2 ring-white" : "opacity-70 hover:opacity-100"
+            }`}
+            style={{ flexGrow: Math.max(s.end - s.start, total / 100), flexBasis: 0, background: colors[s.clipId] }}
+          >
+            <span className="absolute bottom-1 left-1.5 font-mono text-[10px] font-medium text-black/60">{i + 1}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -347,17 +439,18 @@ function EngineBadge({ status, mode }: { status: EngineStatus; mode: VideoEngine
       : status === "error"
         ? "The video engine failed to load. Check your connection and reload the page."
         : fast
-          ? "Video engine ready (multi-threaded)."
-          : "Video engine ready in single-threaded mode. Exports will be slower in this browser.";
-  const tone =
-    status === "error"
-      ? "bg-red-500/10 text-red-700 dark:text-red-400"
-      : status === "ready" && !fast
-        ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
-        : "bg-foreground/5 text-foreground/80";
+          ? "Video engine ready · multi-threaded"
+          : "Video engine ready · single-threaded (exports will be slower in this browser)";
+  const dot = status === "error" ? "bg-danger" : status === "loading" ? "bg-warn animate-pulse" : fast ? "bg-ok" : "bg-warn";
 
   return (
-    <p data-testid="engine-status" data-status={status} data-mode={mode} className={`rounded-md px-3 py-2 text-sm ${tone}`}>
+    <p
+      data-testid="engine-status"
+      data-status={status}
+      data-mode={mode}
+      className="flex items-center gap-2.5 self-start rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-muted"
+    >
+      <span className={`size-2 rounded-full ${dot}`} />
       {text}
     </p>
   );
@@ -366,22 +459,28 @@ function EngineBadge({ status, mode }: { status: EngineStatus; mode: VideoEngine
 function Outputs({ outputs }: { outputs: { url: string; name: string; size: number; method: ExportMethod }[] }) {
   const single = outputs.length === 1;
   return (
-    <div className="flex flex-col gap-3" data-testid="outputs">
-      {single && <video src={outputs[0].url} controls playsInline className="aspect-video w-full rounded-lg bg-black" />}
-      <ul className="flex flex-col gap-1 text-sm">
+    <div className="flex flex-col gap-4 border-t border-line pt-5" data-testid="outputs">
+      <p className="notice notice-ok">
+        {single ? "Your video is ready." : `${outputs.length} files are ready.`} Download before leaving this page.
+      </p>
+      {single && <video src={outputs[0].url} controls playsInline className="aspect-video w-full rounded-xl bg-black" />}
+      <ul className="flex flex-col gap-2">
         {outputs.map((o) => (
-          <li key={o.url} className="flex flex-wrap items-center gap-2">
-            <a href={o.url} download={o.name} className="font-medium underline">
-              Download {o.name}
-            </a>
-            <span className="text-foreground/60">{formatBytes(o.size)}</span>
+          <li key={o.url} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-sm">
+            <span className="truncate font-mono">{o.name}</span>
+            <span className="flex shrink-0 items-center gap-3">
+              <span className="text-subtle">{formatBytes(o.size)}</span>
+              <a href={o.url} download={o.name} className="btn btn-secondary btn-sm">
+                <DownloadIcon size={15} /> Download {o.name}
+              </a>
+            </span>
           </li>
         ))}
       </ul>
       {!single && (
         <button
           type="button"
-          className="self-start rounded-md border border-foreground/20 px-3 py-1.5 text-sm"
+          className="btn btn-primary self-start"
           onClick={() => {
             // Browsers may ask once for permission to download multiple files.
             outputs.forEach((o, i) =>
@@ -394,7 +493,7 @@ function Outputs({ outputs }: { outputs: { url: string; name: string; size: numb
             );
           }}
         >
-          Download all ({outputs.length})
+          <DownloadIcon size={16} /> Download all ({outputs.length})
         </button>
       )}
     </div>
