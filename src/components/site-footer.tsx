@@ -9,7 +9,7 @@ export function SiteFooter() {
           <LogoMark size={20} />
           <span>Anti-Timeout · videos never leave your device</span>
         </div>
-        <div className="flex gap-5">
+        <div className="flex flex-wrap justify-center gap-x-5 gap-y-2">
           <HardLink href="/editor" className="hover:text-fg">
             Editor
           </HardLink>
@@ -18,6 +18,12 @@ export function SiteFooter() {
           </HardLink>
           <HardLink href="/account" className="hover:text-fg">
             Account
+          </HardLink>
+          <HardLink href="/privacy" className="hover:text-fg">
+            Privacy
+          </HardLink>
+          <HardLink href="/terms" className="hover:text-fg">
+            Terms
           </HardLink>
         </div>
       </div>

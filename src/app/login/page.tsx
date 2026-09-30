@@ -38,7 +38,9 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         )}
 
         <p className="text-center text-xs text-subtle">
-          You don&apos;t need an account to edit videos. We only use your email for your subscription and receipts.
+          You don&apos;t need an account to edit videos. By signing in you agree to our{" "}
+          <a href="/terms" className="underline hover:text-fg">Terms</a> and{" "}
+          <a href="/privacy" className="underline hover:text-fg">Privacy Policy</a>.
         </p>
       </div>
     </div>
