@@ -1,4 +1,14 @@
+import { existsSync, readdirSync } from "node:fs";
 import type { NextConfig } from "next";
+
+/**
+ * Landing page showcase videos present in public/showcase, found at build
+ * time and inlined, because pages rendered per request on Vercel can't see
+ * the public folder on disk.
+ */
+const showcaseVideos = existsSync("public/showcase")
+  ? readdirSync("public/showcase").filter((f) => f.endsWith(".mp4")).join(",")
+  : "";
 
 /**
  * Cross-origin isolation (COOP + COEP) unlocks SharedArrayBuffer, which the
@@ -26,6 +36,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  env: { NEXT_PUBLIC_SHOWCASE_VIDEOS: showcaseVideos },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

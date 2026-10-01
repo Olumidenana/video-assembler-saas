@@ -1,5 +1,6 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { unstable_rethrow } from "next/navigation";
 import { PAID_PLANS, type PaidPlanId } from "@/lib/plans";
 import type { PaystackSubscription } from "./status";
 
@@ -77,6 +78,7 @@ export async function getPlan(tier: PaidPlanId): Promise<PaystackPlan | null> {
   try {
     return await call<PaystackPlan>(`/plan/${encodeURIComponent(code)}`, { next: { revalidate: 600 } });
   } catch (err) {
+    unstable_rethrow(err);
     console.error(`[paystack] could not load ${tier} plan`, err);
     return null;
   }

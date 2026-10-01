@@ -174,7 +174,7 @@ background or crop; Studio users can add their logo; Free exports carry a small 
 The phones on the home page play short stock clips from `public/showcase/` when present:
 `skit.mp4`, `podcast.mp4` and `faceless.mp4` (see `src/components/showcase-data.ts`). Use
 9:16 H.264 MP4s of 4–8 seconds, muted, ideally under 4 MB each (free sources: Pexels, Pixabay,
-Mixkit, all of which allow commercial use without attribution). Files are detected at build time;
+Mixkit, all of which allow commercial use without attribution). Files are listed at build time (`next.config.ts`);
 without them the phones show an animated scene instead.
 
 ## Project memory, suggestions and mobile

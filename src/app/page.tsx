@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { HardLink } from "@/components/hard-link";
 import {
   ArrowRightIcon,
@@ -18,8 +16,9 @@ import { SHOWCASE, type ShowcaseClip } from "@/components/showcase-data";
 import { TypingCommand } from "@/components/typing-command";
 import { PLAN_LIMITS } from "@/lib/plans";
 
-// Rendered at build time, so this sees exactly the files that ship in /public.
-const hasVideo = (clip: ShowcaseClip) => existsSync(join(process.cwd(), "public", clip.src));
+// Files in public/showcase, listed at build time by next.config.ts.
+const SHOWCASE_FILES = new Set((process.env.NEXT_PUBLIC_SHOWCASE_VIDEOS ?? "").split(","));
+const hasVideo = (clip: ShowcaseClip) => SHOWCASE_FILES.has(clip.src.slice(clip.src.lastIndexOf("/") + 1));
 
 const SIGNALS = [
   {

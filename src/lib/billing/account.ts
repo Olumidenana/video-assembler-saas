@@ -1,4 +1,5 @@
 import "server-only";
+import { unstable_rethrow } from "next/navigation";
 import { cache } from "react";
 import { supabaseConfigured } from "@/lib/env";
 import type { PlanId } from "@/lib/plans";
@@ -50,6 +51,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
       plan: planForSubscription(subscription ?? null, tierForPlanCode),
     };
   } catch (err) {
+    unstable_rethrow(err); // Next.js uses errors to detect dynamic pages; those aren't failures.
     console.error("[account] could not load viewer", err);
     return SIGNED_OUT;
   }

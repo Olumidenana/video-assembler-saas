@@ -19,7 +19,7 @@ export function ShowcasePhone({
   priority = false,
 }: {
   clip: ShowcaseClip;
-  /** Whether clip.src exists (checked at build time, so missing files don't 404). */
+  /** Whether clip.src exists (listed at build time, so missing files don't 404). */
   hasVideo: boolean;
   className?: string;
   priority?: boolean;
