@@ -27,7 +27,7 @@ export async function SiteHeader() {
               <span className="grid size-6 place-items-center rounded-full bg-gradient-to-br from-brand to-brand-2 text-xs font-semibold text-white">
                 {initial}
               </span>
-              {plan === "pro" ? <span className="badge badge-pro h-5 px-2">Pro</span> : "Account"}
+              {plan !== "free" ? <span className="badge badge-pro h-5 px-2">{plan === "studio" ? "Studio" : "Pro"}</span> : "Account"}
             </HardLink>
           ) : (
             <HardLink href="/login" className="btn btn-primary btn-sm">

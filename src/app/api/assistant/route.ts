@@ -3,14 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { TimelineSummary } from "@/lib/assistant/actions";
 import { AssistantError, planActions } from "@/lib/assistant/claude";
 import { getViewer } from "@/lib/billing/account";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-/**
- * AI requests per user per day. Each costs roughly 1–2 US cents, so these keep
- * even the heaviest Pro user well below their subscription price. Simple
- * commands and auto-edit run in the browser and don't count.
- */
-const DAILY_LIMIT = { free: 5, pro: 40 };
 
 export async function POST(request: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -26,13 +20,14 @@ export async function POST(request: NextRequest) {
 
   const { data: allowed, error } = await createAdminClient().rpc("consume_ai_request", {
     p_user_id: viewer.user.id,
-    p_limit: DAILY_LIMIT[viewer.plan],
+    // Each request costs roughly 1–2 US cents; limits keep heavy users below their price.
+    p_limit: PLAN_LIMITS[viewer.plan].aiDailyLimit,
   });
   if (error) {
     console.error("[assistant] usage check failed", error.message);
     return NextResponse.json({ error: "not_configured" }, { status: 503 });
   }
-  if (!allowed) return NextResponse.json({ error: "limit", limit: DAILY_LIMIT[viewer.plan] }, { status: 429 });
+  if (!allowed) return NextResponse.json({ error: "limit", limit: PLAN_LIMITS[viewer.plan].aiDailyLimit }, { status: 429 });
 
   try {
     return NextResponse.json(await planActions(command, timeline));

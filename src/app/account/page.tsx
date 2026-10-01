@@ -16,7 +16,7 @@ export default async function AccountPage({ searchParams }: PageProps<"/account"
   const [{ user, subscription, plan }, params] = await Promise.all([getViewer(), searchParams]);
   if (!user) redirect("/login?next=/account");
 
-  const pro = plan === "pro";
+  const pro = plan !== "free";
   const error = typeof params.error === "string" ? ERRORS[params.error] : undefined;
   const periodEnd = subscription?.current_period_end ? formatDate(subscription.current_period_end) : null;
   const renewal =
@@ -52,19 +52,26 @@ export default async function AccountPage({ searchParams }: PageProps<"/account"
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm text-muted">Current plan</p>
-            <p className="text-2xl font-semibold">{pro ? "Pro" : "Free"}</p>
+            <p className="text-2xl font-semibold">{PLAN_LIMITS[plan].label}</p>
           </div>
           <span className={pro ? "badge badge-pro" : "badge"}>{pro ? "Active" : "Free plan"}</span>
         </div>
 
         <p className="text-sm text-muted">
           {pro
-            ? "Unlimited stitching and original-quality exports."
-            : `Up to ${PLAN_LIMITS.free.maxStitchClips} videos per stitch and ${PLAN_LIMITS.free.maxShortSide}p exports.`}
+            ? plan === "studio"
+              ? "Unlimited viral clips, all caption styles, your logo, no watermark."
+              : "No watermark, unlimited stitching and original-quality exports."
+            : `Up to ${PLAN_LIMITS.free.maxStitchClips} videos per stitch, ${PLAN_LIMITS.free.maxShortSide}p exports with a watermark.`}
         </p>
         {pro && renewal && <p className="text-sm text-muted">{renewal}</p>}
 
         <div className="flex flex-wrap gap-3">
+          {plan === "pro" && (
+            <HardLink href="/pricing" className="btn btn-primary">
+              Upgrade to Studio
+            </HardLink>
+          )}
           {pro ? (
             subscription?.paystack_subscription_code && (
               <form action="/api/billing/manage" method="post">
@@ -75,7 +82,7 @@ export default async function AccountPage({ searchParams }: PageProps<"/account"
             )
           ) : (
             <HardLink href="/pricing" className="btn btn-primary">
-              Upgrade to Pro
+              See plans
             </HardLink>
           )}
           <HardLink href="/editor" className="btn btn-ghost">

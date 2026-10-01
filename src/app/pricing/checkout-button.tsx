@@ -21,7 +21,17 @@ async function verify(reference: string): Promise<string | null> {
  * when Paystack redirected back here instead of using the popup (some mobile
  * browsers), in which case we verify straight away.
  */
-export function CheckoutButton({ label, returnReference }: { label: string; returnReference?: string }) {
+export function CheckoutButton({
+  label,
+  tier,
+  returnReference,
+  variant = "primary",
+}: {
+  label: string;
+  tier: "pro" | "studio";
+  returnReference?: string;
+  variant?: "primary" | "secondary";
+}) {
   const [state, setState] = useState<State>(
     returnReference ? { status: "busy", label: "Confirming payment…" } : { status: "idle" },
   );
@@ -34,18 +44,27 @@ export function CheckoutButton({ label, returnReference }: { label: string; retu
     // Full page load on purpose: the editor needs its own cross-origin isolated
     // document, which a client-side router.push() would not create.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    else window.location.assign("/editor?welcome=pro");
+    else window.location.assign(`/editor?welcome=${tier}`);
   }
 
   useEffect(() => {
     if (!returnReference || verifiedReturn.current) return;
     verifiedReturn.current = true;
-    void finish(returnReference);
-  }, [returnReference]);
+    void (async () => {
+      const error = await verify(returnReference);
+      if (error) setState({ status: "error", message: error });
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full load for the isolated editor
+      else window.location.assign(`/editor?welcome=${tier}`);
+    })();
+  }, [returnReference, tier]);
 
   async function start() {
     setState({ status: "busy", label: "Opening secure checkout…" });
-    const res = await fetch("/api/paystack/initialize", { method: "POST" });
+    const res = await fetch("/api/paystack/initialize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tier }),
+    });
     const body = (await res.json().catch(() => ({}))) as { accessCode?: string; error?: string };
     if (!res.ok || !body.accessCode) {
       setState({ status: "error", message: body.error ?? "Couldn't start checkout." });
@@ -62,7 +81,7 @@ export function CheckoutButton({ label, returnReference }: { label: string; retu
 
   return (
     <div className="flex flex-col gap-3">
-      <button type="button" className="btn btn-primary btn-lg w-full" onClick={start} disabled={state.status === "busy"}>
+      <button type="button" className={`btn btn-${variant} btn-lg w-full`} onClick={start} disabled={state.status === "busy"}>
         {state.status === "busy" ? state.label : label}
         {state.status !== "busy" && <ArrowRightIcon />}
       </button>

@@ -4,11 +4,18 @@ import { supabaseConfigured } from "@/lib/env";
 import type { PlanId } from "@/lib/plans";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { fetchCustomer, getPlan, planCode, type PaystackTransaction } from "./paystack";
+import {
+  disableSubscription,
+  fetchCustomer,
+  getPlan,
+  getPlans,
+  tierForPlanCode,
+  type PaystackTransaction,
+} from "./paystack";
 import {
   intervalDays,
-  isProSubscription,
   pickSubscription,
+  planForSubscription,
   type SubscriptionRow,
   transactionPlanCode,
 } from "./status";
@@ -40,7 +47,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
     return {
       user: { id: data.user.id, email: data.user.email ?? "", name: meta?.full_name ?? meta?.name ?? null },
       subscription: subscription ?? null,
-      plan: isProSubscription(subscription ?? null) ? "pro" : "free",
+      plan: planForSubscription(subscription ?? null, tierForPlanCode),
     };
   } catch (err) {
     console.error("[account] could not load viewer", err);
@@ -49,13 +56,15 @@ export const getViewer = cache(async (): Promise<Viewer> => {
 });
 
 /**
- * Grants Pro right after a verified first payment, before Paystack has created
- * the subscription. `syncFromPaystack` replaces the provisional period end with
- * the real renewal date once the subscription exists.
+ * Grants the paid tier right after a verified first payment, before Paystack
+ * has created the subscription. `syncFromPaystack` replaces the provisional
+ * period end with the real renewal date once the subscription exists.
  */
 export async function activateFromTransaction(tx: PaystackTransaction, userId: string): Promise<void> {
   if (tx.status !== "success") throw new Error("Payment was not successful");
-  if (transactionPlanCode(tx) !== planCode()) throw new Error("Payment is not for the Pro plan");
+  const code = transactionPlanCode(tx);
+  const tier = tierForPlanCode(code);
+  if (!code || !tier) throw new Error("Payment is not for one of our plans");
 
   const admin = createAdminClient();
   const { data: existing } = await admin
@@ -64,19 +73,33 @@ export async function activateFromTransaction(tx: PaystackTransaction, userId: s
     .eq("user_id", userId)
     .maybeSingle<SubscriptionRow>();
 
-  const plan = await getPlan();
+  // Upgrading from Pro to Studio: stop the old subscription so they aren't charged twice.
+  const previousTier = tierForPlanCode(existing?.plan_code);
+  if (
+    previousTier &&
+    previousTier !== tier &&
+    existing?.paystack_subscription_code &&
+    existing.paystack_email_token
+  ) {
+    await disableSubscription(existing.paystack_subscription_code, existing.paystack_email_token).catch((err) =>
+      console.error("[paystack] could not stop previous subscription", err),
+    );
+  }
+
+  const plan = await getPlan(tier);
   const paidAt = tx.paid_at ? new Date(tx.paid_at).getTime() : Date.now();
   const provisionalEnd = paidAt + intervalDays(plan?.interval ?? "monthly") * 24 * 60 * 60 * 1000;
-  const existingEnd = existing?.current_period_end ? new Date(existing.current_period_end).getTime() : 0;
+  const sameTier = previousTier === tier;
+  const existingEnd = sameTier && existing?.current_period_end ? new Date(existing.current_period_end).getTime() : 0;
 
   const { error } = await admin.from("subscriptions").upsert({
     user_id: userId,
     email: tx.customer.email,
     status: "active",
-    plan_code: planCode(),
+    plan_code: code,
     paystack_customer_code: tx.customer.customer_code,
-    paystack_subscription_code: existing?.paystack_subscription_code ?? null,
-    paystack_email_token: existing?.paystack_email_token ?? null,
+    paystack_subscription_code: sameTier ? (existing?.paystack_subscription_code ?? null) : null,
+    paystack_email_token: sameTier ? (existing?.paystack_email_token ?? null) : null,
     current_period_end: new Date(Math.max(provisionalEnd, existingEnd)).toISOString(),
     updated_at: new Date().toISOString(),
   });
@@ -97,19 +120,21 @@ export async function syncFromPaystack(customerCode: string): Promise<void> {
     .maybeSingle<SubscriptionRow>();
   if (!row) return; // Not one of ours (yet); the first payment links the customer to a user.
 
-  const [customer, plan] = await Promise.all([fetchCustomer(customerCode), getPlan()]);
-  if (!plan) throw new Error("Plan not configured");
-  const sub = pickSubscription(customer.subscriptions ?? [], plan);
-  if (!sub) return; // Subscription not created yet; keep the provisional state.
+  const [customer, plans] = await Promise.all([fetchCustomer(customerCode), getPlans()]);
+  if (plans.length === 0) throw new Error("No plans configured");
+  const best = pickSubscription(customer.subscriptions ?? [], plans);
+  if (!best) return; // Subscription not created yet; keep the provisional state.
 
+  const samePlan = best.plan.plan_code === row.plan_code;
   const { error } = await admin
     .from("subscriptions")
     .update({
-      status: sub.status,
-      paystack_subscription_code: sub.subscription_code,
-      paystack_email_token: sub.email_token,
+      status: best.subscription.status,
+      plan_code: best.plan.plan_code,
+      paystack_subscription_code: best.subscription.subscription_code,
+      paystack_email_token: best.subscription.email_token,
       // "non-renewing" subscriptions have no next payment; keep access until the paid period ends.
-      current_period_end: sub.next_payment_date ?? row.current_period_end,
+      current_period_end: best.subscription.next_payment_date ?? (samePlan ? row.current_period_end : null),
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", row.user_id);

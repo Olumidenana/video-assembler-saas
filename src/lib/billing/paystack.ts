@@ -1,5 +1,6 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { PAID_PLANS, type PaidPlanId } from "@/lib/plans";
 import type { PaystackSubscription } from "./status";
 
 const API = "https://api.paystack.co";
@@ -39,14 +40,21 @@ function secretKey(): string {
   return key;
 }
 
-export function planCode(): string {
-  const code = process.env.PAYSTACK_PLAN_CODE?.trim();
-  if (!code) throw new PaystackError("PAYSTACK_PLAN_CODE is not configured");
-  return code;
+/** Paystack plan codes per tier (Pro: PAYSTACK_PLAN_CODE, Studio: PAYSTACK_STUDIO_PLAN_CODE). */
+export function planCodes(): Partial<Record<PaidPlanId, string>> {
+  const pro = process.env.PAYSTACK_PLAN_CODE?.trim();
+  const studio = process.env.PAYSTACK_STUDIO_PLAN_CODE?.trim();
+  return { ...(pro ? { pro } : {}), ...(studio ? { studio } : {}) };
+}
+
+export function tierForPlanCode(code: string | null | undefined): PaidPlanId | null {
+  if (!code) return null;
+  const codes = planCodes();
+  return PAID_PLANS.find((tier) => codes[tier] === code) ?? null;
 }
 
 export const paystackConfigured = () =>
-  Boolean(process.env.PAYSTACK_SECRET_KEY && process.env.PAYSTACK_PLAN_CODE && process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY);
+  Boolean(process.env.PAYSTACK_SECRET_KEY && process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY && Object.keys(planCodes()).length);
 
 async function call<T>(path: string, init: RequestInit & { next?: { revalidate: number } } = {}): Promise<T> {
   const res = await fetch(`${API}${path}`, {
@@ -62,24 +70,37 @@ async function call<T>(path: string, init: RequestInit & { next?: { revalidate: 
   return json.data as T;
 }
 
-/** The Pro plan as configured in the Paystack dashboard (cached for 10 minutes). */
-export async function getPlan(): Promise<PaystackPlan | null> {
-  if (!paystackConfigured()) return null;
+/** A tier's plan as configured in the Paystack dashboard (cached for 10 minutes). */
+export async function getPlan(tier: PaidPlanId): Promise<PaystackPlan | null> {
+  const code = planCodes()[tier];
+  if (!paystackConfigured() || !code) return null;
   try {
-    return await call<PaystackPlan>(`/plan/${encodeURIComponent(planCode())}`, { next: { revalidate: 600 } });
+    return await call<PaystackPlan>(`/plan/${encodeURIComponent(code)}`, { next: { revalidate: 600 } });
   } catch (err) {
-    console.error("[paystack] could not load plan", err);
+    console.error(`[paystack] could not load ${tier} plan`, err);
     return null;
   }
 }
 
-export function initializeSubscription(input: { email: string; userId: string; amount: number; callbackUrl: string }) {
+/** Every configured paid plan, tagged with its tier. */
+export async function getPlans(): Promise<(PaystackPlan & { tier: PaidPlanId })[]> {
+  const plans = await Promise.all(PAID_PLANS.map(async (tier) => ({ tier, plan: await getPlan(tier) })));
+  return plans.flatMap(({ tier, plan }) => (plan ? [{ ...plan, tier }] : []));
+}
+
+export function initializeSubscription(input: {
+  email: string;
+  userId: string;
+  planCode: string;
+  amount: number;
+  callbackUrl: string;
+}) {
   return call<{ access_code: string; reference: string }>("/transaction/initialize", {
     method: "POST",
     body: JSON.stringify({
       email: input.email,
       amount: input.amount,
-      plan: planCode(),
+      plan: input.planCode,
       // Only cards can be charged again automatically for renewals.
       channels: ["card"],
       callback_url: input.callbackUrl,
@@ -94,6 +115,11 @@ export function verifyTransaction(reference: string) {
 
 export function fetchCustomer(customerCode: string) {
   return call<PaystackCustomer>(`/customer/${encodeURIComponent(customerCode)}`);
+}
+
+/** Stops a subscription from renewing (used when a Pro subscriber upgrades to Studio). */
+export async function disableSubscription(code: string, emailToken: string): Promise<void> {
+  await call("/subscription/disable", { method: "POST", body: JSON.stringify({ code, token: emailToken }) });
 }
 
 /** A Paystack-hosted page where the customer can update their card or cancel. */

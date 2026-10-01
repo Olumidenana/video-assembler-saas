@@ -1,3 +1,5 @@
+import { PLAN_RANK, type PaidPlanId, type PlanId } from "@/lib/plans";
+
 /** Pure subscription logic, shared by server code and unit tests. */
 
 export interface SubscriptionRow {
@@ -22,7 +24,7 @@ const PRO_STATUSES = new Set(["active", "non-renewing", "attention"]);
 /** Renewal webhooks can land a little after the period ends; don't lock people out meanwhile. */
 const GRACE_MS = 24 * 60 * 60 * 1000;
 
-export function isProSubscription(row: SubscriptionRow | null, now = Date.now()): boolean {
+export function isPaidSubscription(row: SubscriptionRow | null, now = Date.now()): boolean {
   if (!row || !PRO_STATUSES.has(row.status) || !row.current_period_end) return false;
   return new Date(row.current_period_end).getTime() + GRACE_MS > now;
 }
@@ -46,6 +48,16 @@ export interface PaystackPlanRef {
   plan_code: string;
 }
 
+/** The tier a subscription row grants, given a lookup from plan code to tier. */
+export function planForSubscription(
+  row: SubscriptionRow | null,
+  tierOf: (planCode: string | null) => PaidPlanId | null,
+  now = Date.now(),
+): PlanId {
+  if (!isPaidSubscription(row, now)) return "free";
+  return tierOf(row!.plan_code) ?? "pro";
+}
+
 export interface PaystackSubscription {
   status: string;
   subscription_code: string;
@@ -57,16 +69,30 @@ export interface PaystackSubscription {
 
 const STATUS_RANK = ["active", "attention", "non-renewing", "complete", "cancelled"];
 
-/** The customer's subscription to our plan, preferring the one that grants the most access. */
-export function pickSubscription(subs: PaystackSubscription[], plan: PaystackPlanRef): PaystackSubscription | null {
-  const ours = subs.filter((s) =>
-    typeof s.plan === "number" ? s.plan === plan.id : s.plan?.plan_code === plan.plan_code || s.plan?.id === plan.id,
-  );
-  const rank = (s: PaystackSubscription) => {
+/**
+ * The customer's best subscription to one of our plans: the most access-granting
+ * status first, then the higher tier (Studio over Pro).
+ */
+export function pickSubscription(
+  subs: PaystackSubscription[],
+  plans: (PaystackPlanRef & { tier: PaidPlanId })[],
+): { subscription: PaystackSubscription; plan: PaystackPlanRef & { tier: PaidPlanId } } | null {
+  const matches = subs.flatMap((s) => {
+    const plan = plans.find((p) =>
+      typeof s.plan === "number" ? s.plan === p.id : s.plan?.plan_code === p.plan_code || s.plan?.id === p.id,
+    );
+    return plan ? [{ subscription: s, plan }] : [];
+  });
+  const statusRank = (s: PaystackSubscription) => {
     const i = STATUS_RANK.indexOf(s.status);
     return i === -1 ? STATUS_RANK.length : i;
   };
-  return ours.sort((a, b) => rank(a) - rank(b))[0] ?? null;
+  return (
+    matches.sort(
+      (a, b) =>
+        statusRank(a.subscription) - statusRank(b.subscription) || PLAN_RANK[b.plan.tier] - PLAN_RANK[a.plan.tier],
+    )[0] ?? null
+  );
 }
 
 /** The plan code on a transaction; Paystack returns it as a string or an object depending on the endpoint. */

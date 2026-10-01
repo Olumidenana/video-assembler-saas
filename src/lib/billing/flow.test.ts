@@ -7,11 +7,12 @@ import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaystackTransaction } from "./paystack";
-import { isProSubscription, type PaystackSubscription, type SubscriptionRow } from "./status";
+import { isPaidSubscription, type PaystackSubscription, type SubscriptionRow } from "./status";
 
 const SECRET = "sk_test_flow";
 vi.stubEnv("PAYSTACK_SECRET_KEY", SECRET);
 vi.stubEnv("PAYSTACK_PLAN_CODE", "PLN_pro");
+vi.stubEnv("PAYSTACK_STUDIO_PLAN_CODE", "PLN_studio");
 vi.stubEnv("NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY", "pk_test_flow");
 
 // --- In-memory stand-in for the Supabase admin client ---------------------
@@ -45,13 +46,21 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ from: () =>
 
 // --- Fake Paystack API -----------------------------------------------------
 let customerSubs: PaystackSubscription[] = [];
+const disabled: unknown[] = [];
 vi.stubGlobal(
   "fetch",
-  vi.fn(async (url: string) => {
+  vi.fn(async (url: string, init?: RequestInit) => {
     const path = new URL(url).pathname;
     const ok = (data: unknown) => new Response(JSON.stringify({ status: true, data }), { status: 200 });
     if (path === "/plan/PLN_pro") {
       return ok({ id: 7, name: "Pro", plan_code: "PLN_pro", amount: 500000, interval: "monthly", currency: "NGN" });
+    }
+    if (path === "/plan/PLN_studio") {
+      return ok({ id: 9, name: "Studio", plan_code: "PLN_studio", amount: 500000, interval: "monthly", currency: "NGN" });
+    }
+    if (path === "/subscription/disable") {
+      disabled.push(JSON.parse(String(init?.body)));
+      return ok({});
     }
     if (path === "/customer/CUS_1") {
       return ok({ customer_code: "CUS_1", email: "ada@example.com", subscriptions: customerSubs });
@@ -89,6 +98,7 @@ const inDays = (d: number) => new Date(Date.now() + d * DAY).toISOString();
 beforeEach(() => {
   table.clear();
   customerSubs = [];
+  disabled.length = 0;
 });
 
 describe("subscription lifecycle", () => {
@@ -96,7 +106,7 @@ describe("subscription lifecycle", () => {
     await activateFromTransaction(tx(), "user-1");
     const provisional = table.get("user-1")!;
     expect(provisional.status).toBe("active");
-    expect(isProSubscription(provisional)).toBe(true);
+    expect(isPaidSubscription(provisional)).toBe(true);
     expect(new Date(provisional.current_period_end!).getTime()).toBeGreaterThan(Date.now() + 30 * DAY);
 
     // Subscription not created yet: sync must not downgrade the provisional state.
@@ -121,14 +131,32 @@ describe("subscription lifecycle", () => {
     const cancelled = table.get("user-1")!;
     expect(cancelled.status).toBe("non-renewing");
     expect(cancelled.current_period_end).toBe(paidUntil);
-    expect(isProSubscription(cancelled)).toBe(true);
+    expect(isPaidSubscription(cancelled)).toBe(true);
 
     customerSubs = [{ status: "complete", subscription_code: "SUB_1", email_token: "t", next_payment_date: null, plan: 7 }];
     await syncFromPaystack("CUS_1");
-    expect(isProSubscription(table.get("user-1")!)).toBe(false);
+    expect(isPaidSubscription(table.get("user-1")!)).toBe(false);
   });
 
-  it("rejects payments that aren't successful or aren't for the Pro plan", async () => {
+  it("upgrades Pro to Studio and stops the old Pro subscription", async () => {
+    await activateFromTransaction(tx(), "user-1");
+    customerSubs = [{ status: "active", subscription_code: "SUB_pro", email_token: "tok_pro", next_payment_date: inDays(20), plan: 7 }];
+    await syncFromPaystack("CUS_1");
+
+    await activateFromTransaction(tx({ reference: "ref_2", plan: "PLN_studio" }), "user-1");
+    expect(disabled).toEqual([{ code: "SUB_pro", token: "tok_pro" }]);
+    expect(table.get("user-1")).toMatchObject({ plan_code: "PLN_studio", status: "active" });
+
+    // Paystack now lists both; the Studio subscription wins.
+    customerSubs = [
+      { status: "non-renewing", subscription_code: "SUB_pro", email_token: "tok_pro", next_payment_date: null, plan: 7 },
+      { status: "active", subscription_code: "SUB_studio", email_token: "tok_s", next_payment_date: inDays(30), plan: 9 },
+    ];
+    await syncFromPaystack("CUS_1");
+    expect(table.get("user-1")).toMatchObject({ plan_code: "PLN_studio", paystack_subscription_code: "SUB_studio" });
+  });
+
+  it("rejects payments that aren't successful or aren't for one of our plans", async () => {
     await expect(activateFromTransaction(tx({ status: "failed" }), "user-1")).rejects.toThrow();
     await expect(activateFromTransaction(tx({ plan: "PLN_other" }), "user-1")).rejects.toThrow();
     expect(table.size).toBe(0);
@@ -145,7 +173,7 @@ describe("webhook route", () => {
   it("activates Pro from charge.success even if the buyer closed the tab", async () => {
     const res = await webhook(signedWebhook({ event: "charge.success", data: tx() }));
     expect(res.status).toBe(200);
-    expect(isProSubscription(table.get("user-1") ?? null)).toBe(true);
+    expect(isPaidSubscription(table.get("user-1") ?? null)).toBe(true);
   });
 
   it("ignores charges for other products and unknown customers", async () => {

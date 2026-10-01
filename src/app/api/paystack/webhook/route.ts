@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { activateFromTransaction, syncFromPaystack } from "@/lib/billing/account";
-import { isValidSignature, planCode, type PaystackTransaction } from "@/lib/billing/paystack";
+import { isValidSignature, tierForPlanCode, type PaystackTransaction } from "@/lib/billing/paystack";
 import { transactionPlanCode, transactionUserId } from "@/lib/billing/status";
 
 const SUBSCRIPTION_EVENTS = new Set([
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     // First payment: link the Paystack customer to our user, even if the buyer
     // closed the tab before the popup could call /api/paystack/verify.
     const userId = transactionUserId(event.data);
-    if (event.event === "charge.success" && userId && transactionPlanCode(event.data) === planCode()) {
+    if (event.event === "charge.success" && userId && tierForPlanCode(transactionPlanCode(event.data))) {
       await activateFromTransaction(event.data, userId);
     }
     await syncFromPaystack(customerCode);
