@@ -1,5 +1,0 @@
-{
-  "min_sweep_pips": [0.5, 1.5],
-  "max_confirm_bars": [2, 4],
-  "min_rr": [1.5, 2.0]
-}
