@@ -19,7 +19,8 @@ import { cancelTranscription, transcribeClip } from "@/lib/video/transcribe";
 import { scoreClip } from "@/lib/video/highlights";
 import { findClipsBySound, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
-import { ViralPanel, type ViralRange } from "./viral-panel";
+import { StartPanel, type Goal } from "./start-panel";
+import { VIRAL_RANGES, ViralPanel, type ViralRange } from "./viral-panel";
 import type { ExportItem } from "@/lib/video/types";
 import { DownloadIcon, UploadIcon } from "@/components/icons";
 import { AutoEditPanel, type AssistantMessage } from "./auto-edit-panel";
@@ -72,6 +73,9 @@ export function Editor({ plan }: { plan: PlanId }) {
   const [task, setTask] = useState<{ label: string; progress: number | null } | null>(null);
   const [viral, setViral] = useState<{ clips: ViralClip[]; basis: "transcript" | "sound"; improved: boolean; range: ViralRange } | null>(null);
   const [logo, setLogo] = useState<{ url: string; bytes: Uint8Array } | null>(() => loadLogo());
+  const fileInput = useRef<HTMLInputElement>(null);
+  // Picked on the start screen; runs once the first video has been read.
+  const [goal, setGoal] = useState<Goal | null>(null);
 
   useEffect(() => {
     engine.load().then(
@@ -189,6 +193,27 @@ export function Editor({ plan }: { plan: PlanId }) {
     setMode(saved.project.mode);
     setPending([]);
     setMemory("saved");
+  }
+
+  useEffect(() => {
+    if (!goal || timeline.segments.length === 0 || pending.length > 0 || engineStatus !== "ready") return;
+    const picked = goal;
+    queueMicrotask(() => {
+      setGoal(null);
+      if (picked === "viral") void findViral(VIRAL_RANGES[0]);
+      else if (picked === "highlight") void runActions([{ type: "highlights", seconds: 30 }]);
+      else if (picked === "captions") {
+        setSettings((s) => ({ ...s, aspect: "9:16", fit: "blur", captions: true }));
+        document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
+      }
+    });
+    // Runs once per goal; the actions read the current render's timeline.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goal, timeline.segments.length, pending.length, engineStatus]);
+
+  function pickGoal(picked: Goal | null) {
+    setGoal(picked);
+    fileInput.current?.click();
   }
 
   async function addFiles(files: File[]) {
@@ -654,44 +679,51 @@ export function Editor({ plan }: { plan: PlanId }) {
         </div>
       )}
 
-      <label
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
+      <input
+        ref={fileInput}
+        id="video-input"
+        type="file"
+        accept="video/*"
+        multiple
+        className="sr-only"
+        data-testid="file-input"
+        onChange={(e) => {
+          void addFiles([...(e.currentTarget.files ?? [])]);
+          e.currentTarget.value = "";
         }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          void addFiles([...e.dataTransfer.files]);
-        }}
-        className={`group flex cursor-pointer flex-col items-center gap-3 rounded-2xl border border-dashed text-center transition-colors ${
-          segments.length > 0 ? "p-5 sm:flex-row sm:justify-center sm:text-left" : "p-10 sm:p-14"
-        } ${dragging ? "border-brand bg-brand/10" : "border-line-strong bg-surface/60 hover:border-brand/60 hover:bg-surface"}`}
-      >
-        <span className="grid size-11 place-items-center rounded-xl bg-brand/12 text-brand transition-transform group-hover:scale-105">
-          <UploadIcon size={20} />
-        </span>
-        <span className="flex flex-col gap-0.5">
-          <span className="font-medium">{segments.length > 0 ? "Add more videos" : "Drop videos here or click to choose"}</span>
-          <span className="text-sm text-muted">MP4, MOV or WebM. Files stay on your device; nothing is uploaded.</span>
-        </span>
-        <input
-          type="file"
-          accept="video/*"
-          multiple
-          className="sr-only"
-          data-testid="file-input"
-          onChange={(e) => {
-            void addFiles([...(e.currentTarget.files ?? [])]);
-            e.currentTarget.value = "";
+      />
+      {segments.length === 0 && !restore ? (
+        <StartPanel onPick={pickGoal} onDrop={(files) => void addFiles(files)} />
+      ) : (
+        <label
+          htmlFor="video-input"
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
           }}
-        />
-      </label>
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            void addFiles([...e.dataTransfer.files]);
+          }}
+          className={`group flex cursor-pointer flex-col items-center gap-3 rounded-2xl border border-dashed p-5 text-center transition-colors sm:flex-row sm:justify-center sm:text-left ${
+            dragging ? "border-brand bg-brand/10" : "border-line-strong bg-surface/60 hover:border-brand/60 hover:bg-surface"
+          }`}
+        >
+          <span className="grid size-11 place-items-center rounded-xl bg-brand/12 text-brand transition-transform group-hover:scale-105">
+            <UploadIcon size={20} />
+          </span>
+          <span className="flex flex-col gap-0.5">
+            <span className="font-medium">Add more videos</span>
+            <span className="text-sm text-muted">MP4, MOV or WebM. Files stay on your device; nothing is uploaded.</span>
+          </span>
+        </label>
+      )}
 
       {pending.length > 0 && (
         <p className="notice notice-info animate-pulse" role="status">
-          Reading {pending.join(", ")}…
+          Reading {pending.join(", ")}…{goal && goal !== "stitch" ? ` Then ${GOAL_NEXT[goal]}.` : ""}
         </p>
       )}
       {errors.length > 0 && (
@@ -1075,3 +1107,9 @@ function Outputs({ outputs }: { outputs: { url: string; name: string; size: numb
     </div>
   );
 }
+
+const GOAL_NEXT: Record<Exclude<Goal, "stitch">, string> = {
+  viral: "finding your viral clips",
+  highlight: "making a 30s highlight",
+  captions: "setting up captions for 9:16",
+};
