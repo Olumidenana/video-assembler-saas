@@ -82,6 +82,56 @@ export async function getPlan(tier: PaidPlanId): Promise<PaystackPlan | null> {
   }
 }
 
+export type KeyState = "missing" | "test" | "live" | "invalid";
+
+const keyState = (value: string | undefined, prefix: "sk" | "pk"): KeyState => {
+  const key = value?.trim();
+  if (!key) return "missing";
+  if (key.startsWith(`${prefix}_test_`)) return "test";
+  if (key.startsWith(`${prefix}_live_`)) return "live";
+  return "invalid";
+};
+
+/**
+ * Setup check for /api/paystack/status: which settings are present (never
+ * their values) and what Paystack says about each plan code. Uncached.
+ */
+export async function diagnose() {
+  const secret = keyState(process.env.PAYSTACK_SECRET_KEY, "sk");
+  const publicKey = keyState(process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY, "pk");
+  const env = { pro: "PAYSTACK_PLAN_CODE", studio: "PAYSTACK_STUDIO_PLAN_CODE" } as const;
+  const plans = Object.fromEntries(
+    await Promise.all(
+      PAID_PLANS.map(async (tier) => {
+        const code = planCodes()[tier];
+        let status: string;
+        if (!code) status = `missing: set ${env[tier]} in Vercel, then redeploy`;
+        else if (!/^PLN_[a-z0-9]+$/i.test(code)) status = `invalid: ${env[tier]} should look like PLN_xxxxxxxx (copy the Plan Code, not the name or link)`;
+        else if (secret === "missing" || secret === "invalid") status = "not checked: fix PAYSTACK_SECRET_KEY first";
+        else {
+          try {
+            const plan = await call<PaystackPlan>(`/plan/${encodeURIComponent(code)}`, { cache: "no-store" });
+            status = `ok: "${plan.name}", ${plan.currency} ${plan.amount / 100} ${plan.interval}`;
+          } catch (err) {
+            status = `error from Paystack: ${err instanceof Error ? err.message : "unknown"} (is the plan in ${secret} mode?)`;
+          }
+        }
+        return [tier, status] as const;
+      }),
+    ),
+  );
+  const problems = [
+    secret === "missing" && "PAYSTACK_SECRET_KEY is missing",
+    secret === "invalid" && "PAYSTACK_SECRET_KEY should start with sk_test_ or sk_live_",
+    publicKey === "missing" && "NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY is missing",
+    publicKey === "invalid" && "NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY should start with pk_test_ or pk_live_",
+    secret !== publicKey && ["test", "live"].includes(secret) && ["test", "live"].includes(publicKey) &&
+      `keys are from different modes (secret: ${secret}, public: ${publicKey})`,
+    ...Object.entries(plans).filter(([, v]) => !v.startsWith("ok")).map(([tier, v]) => `${tier} plan ${v}`),
+  ].filter((p): p is string => Boolean(p));
+  return { ready: problems.length === 0, secretKey: secret, publicKey, plans, problems };
+}
+
 /** Every configured paid plan, tagged with its tier. */
 export async function getPlans(): Promise<(PaystackPlan & { tier: PaidPlanId })[]> {
   const plans = await Promise.all(PAID_PLANS.map(async (tier) => ({ tier, plan: await getPlan(tier) })));
