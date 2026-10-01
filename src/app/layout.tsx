@@ -38,7 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* Marks JS as available before paint, so scroll-reveal content never flashes or stays hidden. */}
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }} />
       </head>
-      <body className="flex min-h-full flex-col">
+      <body className="flex min-h-full flex-col overflow-x-clip">
         <RevealObserver />
         <SiteHeader />
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6 sm:py-14">{children}</main>

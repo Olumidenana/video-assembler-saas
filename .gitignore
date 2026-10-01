@@ -45,3 +45,7 @@ next-env.d.ts
 
 # env
 !.env.example
+
+# ONNX Runtime wasm (copied from node_modules on install/build)
+/public/vendor/ort
+/public/vendor/transformers

@@ -14,6 +14,13 @@ import { canStreamCopy, isUntrimmed, needsDownscale } from "@/lib/video/commands
 import { CancelledError, EngineCrashedError, VideoEngine } from "@/lib/video/engine";
 import { chooseMethod, exportParts, exportStitched, type ExportMethod, type ExportResult } from "@/lib/video/export";
 import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/timeline";
+import { buildAss, type Word, wordsForOutput } from "@/lib/video/captions";
+import { cancelTranscription, transcribeClip } from "@/lib/video/transcribe";
+import { scoreClip } from "@/lib/video/highlights";
+import { findClipsBySound, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
+import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
+import { ViralPanel, type ViralRange } from "./viral-panel";
+import type { ExportItem } from "@/lib/video/types";
 import { DownloadIcon, UploadIcon } from "@/components/icons";
 import { AutoEditPanel, type AssistantMessage } from "./auto-edit-panel";
 import { clipColors } from "./clip-colors";
@@ -60,6 +67,11 @@ export function Editor({ plan }: { plan: PlanId }) {
   // True once this session owns the saved project (so an untouched page never overwrites it).
   const persist = useRef(false);
   const storedBytes = useRef(0);
+  const [settings, setSettings] = useState<ExportSettings>(() => loadSettings());
+  const transcripts = useRef(new Map<string, Word[]>());
+  const [task, setTask] = useState<{ label: string; progress: number | null } | null>(null);
+  const [viral, setViral] = useState<{ clips: ViralClip[]; basis: "transcript" | "sound"; improved: boolean; range: ViralRange } | null>(null);
+  const [logo, setLogo] = useState<{ url: string; bytes: Uint8Array } | null>(() => loadLogo());
 
   useEffect(() => {
     engine.load().then(
@@ -98,6 +110,14 @@ export function Editor({ plan }: { plan: PlanId }) {
     }, 500);
     return () => clearTimeout(timer);
   }, [timeline, mode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // Private mode or storage full: settings just won't be remembered.
+    }
+  }, [settings]);
 
   const running = exportState.status === "running";
   useEffect(() => {
@@ -159,6 +179,7 @@ export function Editor({ plan }: { plan: PlanId }) {
         dispatch({ type: "addClip", clip: { id: stored.id, file, info, url: URL.createObjectURL(file) } });
         storedBytes.current += file.size;
         if (stored.analysis) rememberAnalysis(stored.id, stored.analysis, false);
+        if (stored.transcript) transcripts.current.set(stored.id, stored.transcript);
         else if (info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS) void getAnalysis(stored.id, info).catch(() => {});
       } catch {
         void engine.removeClip(stored.id).catch(() => {});
@@ -208,6 +229,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     if (!clipStillUsed) {
       URL.revokeObjectURL(timeline.clips[segment.clipId].url);
       analyses.current.delete(segment.clipId);
+      transcripts.current.delete(segment.clipId);
       setAnalysisState((prev) => {
         const next = { ...prev };
         delete next[segment.clipId];
@@ -325,16 +347,189 @@ export function Editor({ plan }: { plan: PlanId }) {
     outputUrls.current = [];
   }
 
+  /** Makes sure every listed clip has word timings, transcribing what's missing. */
+  async function ensureTranscripts(clipIds: string[]) {
+    for (const id of clipIds) {
+      if (transcripts.current.has(id)) continue;
+      const clip = timeline.clips[id];
+      if (!clip) continue;
+      const words = await transcribeClip(engine, id, clip.info, settings.language, (p) =>
+        setTask({
+          label: p.stage === "download" ? "Downloading the speech model (first time only)…" : `Listening to ${clip.file.name}…`,
+          progress: p.progress,
+        }),
+      );
+      transcripts.current.set(id, words);
+      if (persist.current) void projectStore.saveTranscript(id, words).catch(() => {});
+    }
+  }
+
+  function cancelTask() {
+    cancelTranscription();
+    engine.cancel();
+    void engine.load().catch(() => setEngineStatus("error"));
+    setTask(null);
+  }
+
+  async function findViral(range: ViralRange) {
+    const ids = [...new Set(timeline.segments.map((s) => s.clipId))];
+    setViral(null);
+    try {
+      setTask({ label: "Watching your videos…", progress: null });
+      for (const id of ids) await getAnalysis(id, timeline.clips[id].info, (r) => setTask({ label: "Watching your videos…", progress: r }));
+      let speech = true;
+      try {
+        await ensureTranscripts(ids.filter((id) => timeline.clips[id].info.audioCodec));
+      } catch (err) {
+        if (err instanceof CancelledError) throw err;
+        speech = false; // Speech model unavailable (offline, old browser): fall back to sound & action.
+      }
+      setTask({ label: "Scoring moments…", progress: null });
+      const opts = { minSeconds: range.min, maxSeconds: range.max, maxClips: 10 };
+      let basis: "transcript" | "sound" = "transcript";
+      const found = ids.flatMap((id) => {
+        const words = speech ? (transcripts.current.get(id) ?? []) : [];
+        const byWords = words.length > 20 ? findViralClips(id, words, analyses.current.get(id), opts) : [];
+        if (byWords.length) return byWords;
+        basis = "sound";
+        const analysis = analyses.current.get(id);
+        return analysis ? findClipsBySound(id, timeline.clips[id].info.duration, scoreClip(analysis), opts) : [];
+      });
+      setViral({ clips: found.sort((a, b) => b.score - a.score).slice(0, 10), basis, improved: false, range });
+    } catch (err) {
+      if (!(err instanceof CancelledError)) setErrors((e) => [...e, "Couldn't analyse the video for viral clips. Please try again."]);
+    } finally {
+      setTask(null);
+    }
+  }
+
+  async function improveViral() {
+    if (!viral) return;
+    // The video with the most speech gets the AI treatment.
+    const id = [...new Set(viral.clips.map((c) => c.clipId))].sort(
+      (a, b) => (transcripts.current.get(b)?.length ?? 0) - (transcripts.current.get(a)?.length ?? 0),
+    )[0];
+    const sentences = toSentences(transcripts.current.get(id) ?? []);
+    if (sentences.length < 3) {
+      setErrors((e) => [...e, "AI needs a video with speech to improve the picks."]);
+      return;
+    }
+    setTask({ label: "AI is reviewing every moment for hooks, curiosity and payoff…", progress: null });
+    try {
+      const res = await fetch("/api/viral", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sentences: sentences.map(({ text, start, end }) => ({ text, start, end })),
+          minSeconds: viral.range.min,
+          maxSeconds: viral.range.max,
+          count: 8,
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        clips?: { startSentence: number; endSentence: number; scores: ViralClip["scores"]; reasons: string[]; title: string; caption: string; hashtags: string[] }[];
+        error?: string;
+      } | null;
+      if (!res.ok || !body?.clips) {
+        const messages: Record<string, string> = {
+          sign_in: "Sign in to improve clips with AI.",
+          upgrade: "Improving clips with AI is part of Pro and Studio.",
+          limit: "You've used today's AI allowance. The local picks still work.",
+          not_configured: "The AI assistant isn't available right now. The local picks still work.",
+        };
+        setErrors((e) => [...e, messages[body?.error ?? ""] ?? "AI couldn't review this video right now."]);
+        return;
+      }
+      const picks: ViralClip[] = body.clips.map((c, i) => ({
+        id: `${id}:ai${i}`,
+        clipId: id,
+        start: Math.max(0, sentences[c.startSentence].start - 0.15),
+        end: sentences[c.endSentence].end + 0.3,
+        score: overallScore(c.scores),
+        scores: c.scores,
+        hook: sentences[c.startSentence].text,
+        reasons: c.reasons,
+        title: c.title || sentences[c.startSentence].text,
+        caption: c.caption,
+        hashtags: c.hashtags,
+      }));
+      const others = viral.clips.filter((c) => c.clipId !== id);
+      setViral({ ...viral, clips: [...picks, ...others].sort((a, b) => b.score - a.score).slice(0, 10), improved: true });
+    } finally {
+      setTask(null);
+    }
+  }
+
+  function useViralClip(clip: ViralClip) {
+    setHistory((h) => [...h.slice(-19), timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }))]);
+    dispatch({ type: "replaceSegments", segments: [{ clipId: clip.clipId, start: clip.start, end: clip.end }] });
+    document.querySelector("[data-testid=segment-list]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function exportViralClips(list: ViralClip[]) {
+    const clipItems: ExportItem[] = list.map((c) => ({ clipId: c.clipId, info: timeline.clips[c.clipId].info, start: c.start, end: c.end }));
+    void startExport(clipItems, list.length > 1 ? "parts" : "stitch");
+    document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function changeLogo(file: File | null) {
+    if (!file) {
+      setLogo(null);
+      try {
+        localStorage.removeItem(LOGO_KEY);
+      } catch {}
+      return;
+    }
+    // Normalise to a small PNG (FFmpeg reads it as an overlay input).
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/png");
+    setLogo(logoFromDataUrl(dataUrl));
+    try {
+      localStorage.setItem(LOGO_KEY, dataUrl);
+    } catch {}
+  }
+
   async function startExport(items = toExportItems(timeline), exportMode: ExportMode = mode) {
     if (exportMode === "stitch" && new Set(items.map((i) => i.clipId)).size > limits.maxStitchClips) {
       setExportState({ status: "error", message: `The ${limits.label} plan stitches up to ${limits.maxStitchClips} videos. Upgrade to Pro for unlimited.` });
       return;
     }
     clearOutputs();
+    if (settings.captions) {
+      try {
+        await ensureTranscripts([...new Set(items.map((i) => i.clipId))]);
+      } catch (err) {
+        setTask(null);
+        if (err instanceof CancelledError) return;
+        setExportState({
+          status: "error",
+          message: "Couldn't create captions (the speech model didn't load). Check your connection, or turn captions off and export again.",
+        });
+        return;
+      } finally {
+        setTask(null);
+      }
+    }
     setExportState({ status: "running", progress: 0 });
+    const style = limits.captionStyles === "all" ? settings.captionStyle : "clean";
     const options = {
       maxShortSide: limits.maxShortSide,
       fastCut,
+      aspect: settings.aspect,
+      fit: settings.fit,
+      watermark: limits.watermark,
+      logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
+      captions: settings.captions
+        ? (renderItems: ExportItem[], canvas: Parameters<typeof buildAss>[2]) => {
+            const words = wordsForOutput(renderItems, Object.fromEntries(transcripts.current), limits.captionSeconds);
+            return words.length ? buildAss(words, style, canvas) : null;
+          }
+        : undefined,
       onProgress: (progress: number) => setExportState({ status: "running", progress }),
     };
     try {
@@ -380,7 +575,16 @@ export function Editor({ plan }: { plan: PlanId }) {
     (group) => canStreamCopy(group, limits.maxShortSide) && !group.every(isUntrimmed),
   );
   const methods = new Set(
-    copyCandidates.map((group) => chooseMethod(group, { maxShortSide: limits.maxShortSide, fastCut })),
+    copyCandidates.map((group) =>
+      chooseMethod(group, {
+        maxShortSide: limits.maxShortSide,
+        fastCut,
+        aspect: settings.aspect,
+        watermark: limits.watermark,
+        logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
+        captions: settings.captions ? () => null : undefined,
+      }),
+    ),
   );
   const exportDisabled = segments.length === 0 || overClipLimit || running || engineStatus === "error";
 
@@ -409,6 +613,26 @@ export function Editor({ plan }: { plan: PlanId }) {
           </p>
         )}
       </div>
+
+      {task && (
+        <div className="sticky top-20 z-30 flex flex-col gap-2 rounded-xl border border-brand/40 bg-surface/95 p-4 shadow-xl shadow-brand/10 backdrop-blur" role="status" data-testid="task">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex items-center gap-2">
+              <span className="size-2 animate-pulse rounded-full bg-brand" /> {task.label}
+            </span>
+            <button type="button" className="text-xs text-muted hover:text-fg" onClick={cancelTask}>
+              Cancel
+            </button>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
+            {task.progress === null ? (
+              <div className="h-full w-1/3 animate-indeterminate rounded-full bg-gradient-to-r from-brand to-brand-2" />
+            ) : (
+              <div className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2 transition-[width] duration-300" style={{ width: `${Math.round(task.progress * 100)}%` }} />
+            )}
+          </div>
+        </div>
+      )}
 
       {restore && (
         <div className="card flex flex-wrap items-center justify-between gap-4 border-brand/40 p-5" data-testid="restore">
@@ -513,6 +737,22 @@ export function Editor({ plan }: { plan: PlanId }) {
       )}
 
       {segments.length > 0 && (
+        <ViralPanel
+          clips={viral?.clips ?? null}
+          basis={viral?.basis ?? null}
+          busy={Boolean(task) || running || engineStatus !== "ready"}
+          exportable={limits.viralClipExports}
+          canImprove={plan !== "free"}
+          improved={viral?.improved ?? false}
+          clipName={(id) => clips[id]?.file.name ?? "video"}
+          onFind={(range) => void findViral(range)}
+          onImprove={() => void improveViral()}
+          onUse={useViralClip}
+          onExport={exportViralClips}
+        />
+      )}
+
+      {segments.length > 0 && (
         <>
           <Timeline
             segments={segments}
@@ -569,6 +809,15 @@ export function Editor({ plan }: { plan: PlanId }) {
                   : "Re-encode · frame-accurate"}
             </span>
           </div>
+
+          <ExportSettingsPanel
+            settings={settings}
+            onChange={setSettings}
+            limits={limits}
+            disabled={running}
+            logoUrl={logo?.url ?? null}
+            onLogo={(f) => void changeLogo(f)}
+          />
 
           <fieldset className="grid gap-3 sm:grid-cols-2" disabled={running}>
             <legend className="sr-only">Export mode</legend>
@@ -719,6 +968,33 @@ function Timeline({
       })}
     </div>
   );
+}
+
+const SETTINGS_KEY = "anti-timeout:export-settings";
+const LOGO_KEY = "anti-timeout:logo";
+
+function loadSettings(): ExportSettings {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<ExportSettings> | null;
+    return { ...DEFAULT_EXPORT_SETTINGS, ...saved };
+  } catch {
+    return DEFAULT_EXPORT_SETTINGS;
+  }
+}
+
+function logoFromDataUrl(dataUrl: string): { url: string; bytes: Uint8Array } {
+  const binary = atob(dataUrl.split(",")[1] ?? "");
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  return { url: dataUrl, bytes };
+}
+
+function loadLogo(): { url: string; bytes: Uint8Array } | null {
+  try {
+    const dataUrl = localStorage.getItem(LOGO_KEY);
+    return dataUrl ? logoFromDataUrl(dataUrl) : null;
+  } catch {
+    return null;
+  }
 }
 
 function timeAgo(ms: number): string {

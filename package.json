@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "postinstall": "node scripts/copy-ffmpeg-core.mjs",
-    "predev": "node scripts/copy-ffmpeg-core.mjs",
+    "postinstall": "node scripts/copy-ffmpeg-core.mjs && node scripts/fetch-transformers.mjs",
+    "predev": "node scripts/copy-ffmpeg-core.mjs && node scripts/fetch-transformers.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/copy-ffmpeg-core.mjs",
+    "prebuild": "node scripts/copy-ffmpeg-core.mjs && node scripts/fetch-transformers.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -23,6 +23,7 @@
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
     "next": "16.3.6",
+    "onnxruntime-web": "^1.31.0-dev.20260914-8d85527a0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1"

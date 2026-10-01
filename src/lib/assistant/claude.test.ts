@@ -99,3 +99,34 @@ describe("POST /api/assistant", () => {
     expect(rpc).toHaveBeenCalledWith("consume_ai_request", { p_user_id: "u2", p_limit: 40 });
   });
 });
+
+describe("planViralClips", () => {
+  it("returns validated clips in sentence ranges", async () => {
+    const { planViralClips } = await import("./claude");
+    create.mockResolvedValue(
+      reply({
+        clips: [
+          { start_sentence: 1, end_sentence: 3, hook: 92, curiosity: 80, emotion: 140, value: 70, pacing: 60, reasons: ["Bold claim"], title: "Why you're still broke", caption: "Save this 💰", hashtags: ["money", "#lagos"] },
+          { start_sentence: 4, end_sentence: 99, hook: 50, curiosity: 50, emotion: 50, value: 50, pacing: 50, reasons: [], title: "", caption: "", hashtags: [] },
+        ],
+      }),
+    );
+    const sentences = Array.from({ length: 6 }, (_, i) => ({ text: `Sentence ${i}.`, start: i * 5, end: i * 5 + 4 }));
+    const clips = await planViralClips(sentences, { minSeconds: 10, maxSeconds: 30, count: 5 });
+
+    expect(clips).toEqual([
+      {
+        startSentence: 1,
+        endSentence: 3,
+        scores: { hook: 92, curiosity: 80, emotion: 100, value: 70, pacing: 60 },
+        reasons: ["Bold claim"],
+        title: "Why you're still broke",
+        caption: "Save this 💰",
+        hashtags: ["#money", "#lagos"],
+      },
+    ]);
+    const params = create.mock.calls[0][0];
+    expect(params.system).toContain("content psychology");
+    expect(params.messages[0].content).toContain("[2] (10.0-14.0s) Sentence 2.");
+  });
+});

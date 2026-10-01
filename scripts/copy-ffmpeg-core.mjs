@@ -15,11 +15,25 @@ const targets = [
   // @ffmpeg/ffmpeg's own worker, loaded via `classWorkerURL` so the bundler never
   // has to understand its `new Worker(new URL(...))` pattern.
   { pkg: "@ffmpeg/ffmpeg", out: "class", files: ["worker.js", "const.js", "errors.js"] },
+  // ONNX Runtime for in-browser speech recognition (captions). The version is
+  // pinned in package.json to the one public/vendor/transformers expects.
+  // asyncify = WebGPU-capable build; plain = CPU (WebAssembly) build.
+  {
+    pkg: "onnxruntime-web",
+    dist: "dist",
+    dest: "public/vendor/ort",
+    files: [
+      "ort-wasm-simd-threaded.asyncify.mjs",
+      "ort-wasm-simd-threaded.asyncify.wasm",
+      "ort-wasm-simd-threaded.mjs",
+      "ort-wasm-simd-threaded.wasm",
+    ],
+  },
 ];
 
-for (const { pkg, out, files } of targets) {
-  const src = join(root, "node_modules", pkg, "dist", "esm");
-  const dest = join(root, "public", "ffmpeg", out);
+for (const { pkg, out, files, dist = "dist/esm", dest: destDir } of targets) {
+  const src = join(root, "node_modules", pkg, dist);
+  const dest = destDir ? join(root, destDir) : join(root, "public", "ffmpeg", out);
   mkdirSync(dest, { recursive: true });
   for (const file of files) {
     const from = join(src, file);
@@ -29,5 +43,5 @@ for (const { pkg, out, files } of targets) {
     }
     cpSync(from, join(dest, file));
   }
-  console.log(`[copy-ffmpeg-core] ${pkg} -> public/ffmpeg/${out}`);
+  console.log(`[copy-ffmpeg-core] ${pkg} -> ${destDir ?? `public/ffmpeg/${out}`}`);
 }

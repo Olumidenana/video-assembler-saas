@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Vendored FFmpeg.wasm files copied from node_modules.
     "public/ffmpeg/**",
+    "public/vendor/**",
   ]),
 ]);
 

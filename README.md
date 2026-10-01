@@ -1,8 +1,9 @@
 # Anti-Timeout Video Splitter & Assembler
 
-Trim, split and stitch videos in the browser with FFmpeg.wasm. The processing runs on the
-user's device, so Vercel's serverless time limits never apply to it. Pro features are sold as a
-monthly NGN subscription through Paystack, and Supabase handles accounts and plan status.
+Turn long videos into captioned, vertical clips scored for viral potential, and trim, split and
+stitch videos, all in the browser with FFmpeg.wasm. The processing runs on the user's device, so
+Vercel's serverless time limits never apply to it. Three plans (Free, Pro, Studio) are sold as
+monthly NGN subscriptions through Paystack, and Supabase handles accounts and plan status.
 
 ## Stack
 
@@ -12,11 +13,14 @@ monthly NGN subscription through Paystack, and Supabase handles accounts and pla
 - Paystack inline checkout + Plans (monthly NGN subscriptions)
 - Google sign-in via Supabase Auth
 - AI auto-edit: in-browser highlight/silence detection, plus Claude for free-text commands
+- Captions: Whisper on-device (transformers.js + onnxruntime-web), burned in with libass
+- Viral Clip Finder: on-device content-psychology scoring, optionally refined by Claude
 
 ## Getting started
 
 ```bash
-npm install            # also copies the FFmpeg cores into public/ffmpeg
+npm install            # also copies the FFmpeg cores and ONNX Runtime into public/, and
+                       # downloads transformers.js (checksum-verified) into public/vendor
 cp .env.example .env.local
 npm run dev
 ```
@@ -81,7 +85,7 @@ Points worth knowing before changing it:
 Pricing page ──POST /api/paystack/initialize──▶ Paystack (creates transaction for PLAN_CODE)
      │                                              │
      └─ inline popup (card) ─ onSuccess ─▶ POST /api/paystack/verify ─▶ re-fetch tx from Paystack,
-                                                                         check user + plan, grant Pro
+                                                                         check user + plan, grant tier
 Paystack ──webhook──▶ POST /api/paystack/webhook ─▶ verify signature ─▶ re-read customer's
                                                                          subscriptions, update row
 ```
@@ -90,15 +94,19 @@ Paystack ──webhook──▶ POST /api/paystack/webhook ─▶ verify signatu
   only *read* their own row (RLS). Only the server writes, using `SUPABASE_SECRET_KEY`.
 - **Webhooks are triggers, not data.** On every relevant event we re-read the customer's
   subscriptions from Paystack, so late or out-of-order events can't leave a wrong state.
-- **Pro =** status `active`, `non-renewing` (cancelled but paid up) or `attention` (renewal retrying),
+- **Two plans in Paystack:** `PAYSTACK_PLAN_CODE` is Pro and `PAYSTACK_STUDIO_PLAN_CODE` is Studio.
+  The tier always comes from the plan code (`tierForPlanCode`). Upgrading Pro → Studio disables
+  the Pro subscription once Studio is paid, so nobody is billed twice.
+- **Paid =** status `active`, `non-renewing` (cancelled but paid up) or `attention` (renewal retrying),
   and `current_period_end` in the future, plus a 24-hour grace period (`status.ts`).
-- The price shown on `/pricing` is read from the Paystack plan, so change it in Paystack, not in code.
+- What each plan unlocks lives in `src/lib/plans.ts` (`PLAN_LIMITS`).
+- The prices shown on `/pricing` are read from the Paystack plans, so change it in Paystack, not in code.
 - The Paystack popup only works on non-isolated pages. It lives on `/pricing` and returns to the
   editor with a full page load.
 
 ### One-time setup
 
-1. **Supabase → SQL Editor**: run `supabase/migrations/0001_subscriptions.sql`.
+1. **Supabase → SQL Editor**: run each file in `supabase/migrations/` in order (0001, 0002, 0003).
 2. **Supabase → Authentication → Sign In / Providers → Google**: enable with the Client ID and
    secret from Google Cloud (OAuth client, type "Web application", redirect URI = the callback URL
    Supabase shows).
@@ -132,10 +140,42 @@ structured JSON output) to translate the request into the same small set of edit
 browser applies them with the same reducer as the manual controls, as one undoable step.
 
 - Requires sign-in, and `ANTHROPIC_API_KEY` on the server.
-- Daily limit per user: 5 (Free) / 40 (Pro), enforced atomically in Postgres
-  (`supabase/migrations/0002_ai_usage.sql`).
+- Daily AI units per user: 5 (Free) / 40 (Pro) / 80 (Studio), enforced atomically in Postgres
+  (`consume_ai_request` in `supabase/migrations/0002_ai_usage.sql`, with a cost per call since
+  `0003_ai_usage_cost.sql`). A command costs 1 unit; "Improve with AI" costs 10.
 - The server-side `fallbacks: "default"` option is enabled, so if Claude declines a request,
   Anthropic retries it on its recommended fallback model.
+
+## Captions and the Viral Clip Finder
+
+**Captions** (`src/lib/video/transcribe.ts`, `captions.ts`, `public/workers/whisper.js`): FFmpeg
+extracts 16 kHz mono audio, and Whisper (`Xenova/whisper-base`, or `-tiny` on low-powered
+devices; `.en` variants for English) transcribes it with word timings in a Web Worker, in
+5-minute windows. The model (~40–150 MB) downloads from Hugging Face on first use and is cached
+by the browser. Words are mapped onto the export's timeline and written as an ASS subtitle file
+that libass burns in, using the bundled OFL fonts in `public/fonts`. Free captions the first 60 s;
+Pro and Studio the whole video; Bold Pop, Karaoke and other premium styles are Studio-only.
+
+**Viral Clip Finder** (`src/lib/assistant/viral.ts`): candidate clips are cut on sentence
+boundaries from the transcript and scored 0–100 on five signals: hook (opening words: questions,
+bold claims, "you", numbers), curiosity (open loops), emotion (emotional language plus loudness
+peaks), value (tips, how-tos, numbers) and pacing (words per second plus motion), weighted
+32/20/20/14/14. Each comes with reasons, a title, a caption and hashtags. Videos without speech
+fall back to sound-and-action scoring. Free exports the top clip, Pro the top 3, Studio all.
+
+"Improve with AI" (Pro and Studio) sends only the transcript sentences, never the video, to
+`POST /api/viral`, where Claude picks and writes the clips using the same psychology.
+
+**Export settings** (`src/app/editor/export-settings.tsx`): 9:16, 1:1 or 16:9 with a blurred
+background or crop; Studio users can add their logo; Free exports carry a small watermark.
+
+## Landing page showcase videos
+
+The phones on the home page play short stock clips from `public/showcase/` when present:
+`skit.mp4`, `podcast.mp4` and `faceless.mp4` (see `src/components/showcase-data.ts`). Use
+9:16 H.264 MP4s of 4–8 seconds, muted, ideally under 4 MB each (free sources: Pexels, Pixabay,
+Mixkit, all of which allow commercial use without attribution). Files are detected at build time;
+without them the phones show an animated scene instead.
 
 ## Project memory, suggestions and mobile
 
@@ -154,14 +194,15 @@ browser applies them with the same reducer as the manual controls, as one undoab
 
 1. **Branch:** make `main` the production branch (GitHub default branch + Vercel → Settings →
    Environments → Production → Branch Tracking).
-2. **Supabase:** run both migrations in `supabase/migrations/` (SQL Editor).
+2. **Supabase:** run every migration in `supabase/migrations/` in order (SQL Editor).
 3. **Google sign-in:** complete Google Auth Platform → Branding (home, privacy, terms links,
    authorized domains) and **Publish app**.
 4. **Anthropic:** create an API key at console.anthropic.com, add `ANTHROPIC_API_KEY` (Secret) in
    Vercel, and set a monthly spend limit in the Anthropic console.
-5. **Paystack live:** create the same plan in Live mode, then in Vercel (Production scope only) set
-   `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=pk_live_…`, `PAYSTACK_SECRET_KEY=sk_live_…`,
-   `PAYSTACK_PLAN_CODE=<live PLN_…>`. Set the **Live** webhook URL to
+5. **Paystack live:** create the same two plans (Pro and Studio) in Live mode, then in Vercel
+   (Production scope only) set `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=pk_live_…`,
+   `PAYSTACK_SECRET_KEY=sk_live_…`, `PAYSTACK_PLAN_CODE=<live Pro PLN_…>` and
+   `PAYSTACK_STUDIO_PLAN_CODE=<live Studio PLN_…>`. Set the **Live** webhook URL to
    `https://<domain>/api/paystack/webhook`. Keep test keys on Preview.
 6. **Domain (optional):** add a custom domain in Vercel, then update `NEXT_PUBLIC_SITE_URL`,
    Supabase Site URL / Redirect URLs, Google authorized origins/domains, and the Paystack webhook.

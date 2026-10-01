@@ -28,14 +28,28 @@ export interface Canvas {
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 const secs = (n: number) => n.toFixed(3);
 
-/** Output size: the source's display size, scaled down so the short side fits the plan. */
-export function computeCanvas(info: MediaInfo, maxShortSide: number): Canvas {
-  const scale = Math.min(1, maxShortSide / Math.min(info.width, info.height));
-  return {
-    width: even(info.width * scale),
-    height: even(info.height * scale),
-    fps: Math.min(60, Math.max(1, Math.round(info.fps) || 30)),
-  };
+export type Aspect = "original" | "9:16" | "1:1" | "16:9";
+/** How a source fills a canvas of a different shape. */
+export type Fit = "crop" | "blur";
+
+const ASPECTS: Record<Exclude<Aspect, "original">, [number, number]> = { "9:16": [9, 16], "1:1": [1, 1], "16:9": [16, 9] };
+
+/**
+ * Output size. "original" keeps the source's display size, scaled down so the
+ * short side fits the plan; other aspects target a 1080-wide short side (also
+ * capped by the plan), e.g. 1080x1920 for 9:16 or 720x1280 on Free.
+ */
+export function computeCanvas(info: MediaInfo, maxShortSide: number, aspect: Aspect = "original"): Canvas {
+  const fps = Math.min(60, Math.max(1, Math.round(info.fps) || 30));
+  if (aspect === "original") {
+    const scale = Math.min(1, maxShortSide / Math.min(info.width, info.height));
+    return { width: even(info.width * scale), height: even(info.height * scale), fps };
+  }
+  const [aw, ah] = ASPECTS[aspect];
+  const short = Math.min(1080, maxShortSide);
+  return aw <= ah
+    ? { width: even(short), height: even((short * ah) / aw), fps }
+    : { width: even((short * aw) / ah), height: even(short), fps };
 }
 
 export function needsDownscale(info: MediaInfo, maxShortSide: number): boolean {
@@ -101,7 +115,53 @@ export function buildCopyArgs(listPath: string, output: string, hasAudio: boolea
  * audio format, and given a silent track if it has no audio, so the concat
  * filter accepts clips from any source.
  */
-export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: string): string[] {
+/** Files written into FFmpeg's filesystem before an export that uses overlays. */
+export const OVERLAY_FILES = {
+  font: "/fonts/Montserrat-ExtraBold.ttf",
+  fontsDir: "/fonts",
+  logo: "/overlay-logo.png",
+  captions: "/captions.ass",
+};
+
+export interface Overlays {
+  fit?: Fit;
+  /** "Made with Anti-Timeout" in the corner (Free plan). */
+  watermark?: boolean;
+  /** Creator's logo (PNG at OVERLAY_FILES.logo) in the top-right corner. */
+  logo?: boolean;
+  /** Burned-in captions from the ASS file at OVERLAY_FILES.captions. */
+  captions?: boolean;
+}
+
+/** Fits one input onto the canvas: letterbox, fill-and-crop, or fit over a blurred copy. */
+function fitFilter(input: string, out: string, W: number, H: number, fps: number, fit: Fit | "letterbox"): string {
+  const tail = `setsar=1,fps=${fps},format=yuv420p,setpts=PTS-STARTPTS[${out}]`;
+  if (fit === "crop") {
+    return `${input}scale=${W}:${H}:force_original_aspect_ratio=increase:force_divisible_by=2,crop=${W}:${H},${tail}`;
+  }
+  if (fit === "blur") {
+    // Blur a small copy and scale it up: looks the same as blurring full size, at a fraction of the cost.
+    const bw = even(W / 8);
+    const bh = even(H / 8);
+    return (
+      `${input}split[${out}a][${out}b];` +
+      `[${out}a]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh},boxblur=6:2,scale=${W}:${H},setsar=1[${out}bg];` +
+      `[${out}b]scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1[${out}fg];` +
+      `[${out}bg][${out}fg]overlay=(W-w)/2:(H-h)/2,${tail}`
+    );
+  }
+  return (
+    `${input}scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2,` +
+    `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,${tail}`
+  );
+}
+
+/** Escapes text for FFmpeg's drawtext (inside a filtergraph). */
+const drawtextEscape = (text: string) => text.replace(/\\/g, "\\\\").replace(/'/g, "\u2019").replace(/:/g, "\\:");
+
+export const WATERMARK_TEXT = "Made with Anti-Timeout";
+
+export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: string, overlays: Overlays = {}): string[] {
   const { width: W, height: H, fps } = canvas;
   const inputs: string[] = [];
   const filters: string[] = [];
@@ -116,10 +176,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
       "-ss", secs(item.start), "-t", duration, "-i", clipPath(item.clipId),
     );
 
-    filters.push(
-      `[${i}:v:0]scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2,` +
-        `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p,setpts=PTS-STARTPTS[v${i}]`,
-    );
+    filters.push(fitFilter(`[${i}:v:0]`, `v${i}`, W, H, fps, overlays.fit ?? "letterbox"));
     filters.push(
       item.info.audioCodec
         ? `[${i}:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
@@ -129,7 +186,38 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     pairs.push(`[v${i}][a${i}]`);
   });
 
-  filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[vout][aout]`);
+  const hasPost = overlays.watermark || overlays.logo || overlays.captions;
+  filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[${hasPost ? "vjoined" : "vout"}][aout]`);
+
+  // Overlays go on the joined video, in order: captions, logo, watermark.
+  if (hasPost) {
+    let current = "vjoined";
+    const step = (filter: string, label: string) => {
+      filters.push(`[${current}]${filter}[${label}]`);
+      current = label;
+    };
+    if (overlays.captions) step(`subtitles=${OVERLAY_FILES.captions}:fontsdir=${OVERLAY_FILES.fontsDir}`, "vcap");
+    if (overlays.logo) {
+      inputs.push("-i", OVERLAY_FILES.logo);
+      const logoInput = items.length;
+      const size = Math.round(Math.min(W, H) * 0.16);
+      filters.push(`[${logoInput}:v]scale=${size}:-1,format=rgba,colorchannelmixer=aa=0.9[logo]`);
+      const margin = Math.round(Math.min(W, H) * 0.04);
+      filters.push(`[${current}][logo]overlay=W-w-${margin}:${margin}[vlogo]`);
+      current = "vlogo";
+    }
+    if (overlays.watermark) {
+      const size = Math.max(14, Math.round(Math.min(W, H) * 0.032));
+      const margin = Math.round(Math.min(W, H) * 0.035);
+      step(
+        `drawtext=fontfile=${OVERLAY_FILES.font}:text='${drawtextEscape(WATERMARK_TEXT)}':fontsize=${size}:` +
+          `fontcolor=white@0.9:box=1:boxcolor=black@0.4:boxborderw=${Math.round(size * 0.45)}:` +
+          `x=w-tw-${margin}:y=h-th-${margin}`,
+        "vmark",
+      );
+    }
+    filters.push(`[${current}]null[vout]`);
+  }
 
   return [
     ...inputs,

@@ -1,10 +1,14 @@
 import {
+  type Aspect,
+  type Canvas,
   buildConcatList,
   buildCopyArgs,
   buildReencodeArgs,
   canStreamCopy,
   computeCanvas,
+  type Fit,
   isUntrimmed,
+  OVERLAY_FILES,
 } from "./commands";
 import type { VideoEngine } from "./engine";
 import type { ExportItem } from "./types";
@@ -21,13 +25,42 @@ export interface ExportOptions {
   maxShortSide: number;
   /** Allow stream copy even when trimmed (cuts snap to keyframes). */
   fastCut: boolean;
+  aspect?: Aspect;
+  fit?: Fit;
+  /** "Made with Anti-Timeout" mark (Free plan). */
+  watermark?: boolean;
+  /** Creator's logo as PNG bytes (Studio). */
+  logo?: Uint8Array | null;
+  /** Builds the ASS captions for one render's items (in output time), or null for none. */
+  captions?: (items: ExportItem[], canvas: Canvas) => string | null;
   onProgress?: (ratio: number) => void;
 }
 
+/** Overlays and reframing change pixels, which stream copy can't do. */
+const needsPixels = (o: ExportOptions) =>
+  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions);
+
 /** Which method an export of these items will use. */
-export function chooseMethod(items: ExportItem[], { maxShortSide, fastCut }: ExportOptions): ExportMethod {
-  if (!canStreamCopy(items, maxShortSide)) return "reencode";
-  return fastCut || items.every(isUntrimmed) ? "copy" : "reencode";
+export function chooseMethod(items: ExportItem[], options: ExportOptions): ExportMethod {
+  if (needsPixels(options) || !canStreamCopy(items, options.maxShortSide)) return "reencode";
+  return options.fastCut || items.every(isUntrimmed) ? "copy" : "reencode";
+}
+
+let fontsPromise: Promise<Record<string, Uint8Array>> | null = null;
+
+/** The caption/watermark fonts, fetched once from /fonts and kept in memory. */
+function loadFonts(): Promise<Record<string, Uint8Array>> {
+  fontsPromise ??= Promise.all(
+    ["Montserrat-ExtraBold.ttf", "Anton-Regular.ttf"].map(async (name) => {
+      const res = await fetch(`/fonts/${name}`);
+      if (!res.ok) throw new Error(`Couldn't load font ${name}`);
+      return [`${OVERLAY_FILES.fontsDir}/${name}`, new Uint8Array(await res.arrayBuffer())] as const;
+    }),
+  ).then(Object.fromEntries);
+  fontsPromise.catch(() => {
+    fontsPromise = null;
+  });
+  return fontsPromise;
 }
 
 async function render(
@@ -42,6 +75,15 @@ async function render(
   const clipIds = [...new Set(items.map((i) => i.clipId))];
   const totalDuration = items.reduce((sum, i) => sum + (i.end - i.start), 0);
 
+  const canvas = computeCanvas(items[0].info, options.maxShortSide, options.aspect);
+  const ass = method === "reencode" ? (options.captions?.(items, canvas) ?? null) : null;
+  const overlayFiles: Record<string, string | Uint8Array> =
+    method === "reencode" && (options.watermark || ass)
+      ? { ...(await loadFonts()) }
+      : {};
+  if (ass) overlayFiles[OVERLAY_FILES.captions] = ass;
+  if (method === "reencode" && options.logo) overlayFiles[OVERLAY_FILES.logo] = options.logo;
+
   const bytes =
     method === "copy"
       ? await engine.run(
@@ -53,9 +95,15 @@ async function render(
         )
       : await engine.run(
           clipIds,
-          buildReencodeArgs(items, computeCanvas(items[0].info, options.maxShortSide), output),
+          buildReencodeArgs(items, canvas, output, {
+            fit: options.aspect && options.aspect !== "original" ? (options.fit ?? "crop") : undefined,
+            watermark: options.watermark,
+            logo: Boolean(options.logo),
+            captions: Boolean(ass),
+          }),
           output,
           { totalDuration, onProgress },
+          overlayFiles,
         );
 
   // Copy into a fresh ArrayBuffer-backed view so Blob accepts it under strict TS lib types.

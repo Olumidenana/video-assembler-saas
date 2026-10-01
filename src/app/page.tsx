@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { HardLink } from "@/components/hard-link";
 import {
   ArrowRightIcon,
   BoltIcon,
+  CheckIcon,
   ClockIcon,
   LayersIcon,
   LockIcon,
@@ -10,33 +13,96 @@ import {
   SplitIcon,
   UploadIcon,
 } from "@/components/icons";
+import { ShowcasePhone } from "@/components/showcase";
+import { SHOWCASE, type ShowcaseClip } from "@/components/showcase-data";
 import { TypingCommand } from "@/components/typing-command";
+import { PLAN_LIMITS } from "@/lib/plans";
+
+// Rendered at build time, so this sees exactly the files that ship in /public.
+const hasVideo = (clip: ShowcaseClip) => existsSync(join(process.cwd(), "public", clip.src));
+
+const SIGNALS = [
+  {
+    emoji: "🪝",
+    name: "Hook",
+    body: "Viewers decide in the first 3 seconds. Bold claims, questions and pattern breaks score high.",
+  },
+  {
+    emoji: "🧩",
+    name: "Curiosity",
+    body: "Open loops (“here’s the part nobody tells you…”) keep people watching to the payoff.",
+  },
+  {
+    emoji: "🔥",
+    name: "Emotion",
+    body: "Laughter, surprise and strong opinions get shared. Loud reactions and energy count too.",
+  },
+  {
+    emoji: "💡",
+    name: "Value",
+    body: "Tips, numbers and how-tos get saved, and saves tell the algorithm to push your clip.",
+  },
+  {
+    emoji: "⚡",
+    name: "Pacing",
+    body: "No dead air. Clips are cut on sentence boundaries, so they never start or end mid-thought.",
+  },
+];
+
+const CREATORS = [
+  {
+    emoji: "🎙️",
+    title: "Clippers",
+    body: "Turn a 2-hour podcast, stream or interview into ranked short clips. Hours of scrubbing become a few minutes.",
+  },
+  {
+    emoji: "🎭",
+    title: "Skit makers",
+    body: "Find the punchline, cut the dead air and add word-by-word captions that keep people watching.",
+  },
+  {
+    emoji: "🤖",
+    title: "YouTube automation",
+    body: "Faceless channels: repurpose long-form into Shorts in bulk, with titles, captions and hashtags written for you.",
+  },
+  {
+    emoji: "📱",
+    title: "Everyday creators",
+    body: "Church services, events, classes and vlogs: post the best minute to Status, Reels and TikTok.",
+  },
+];
+
+const STEPS = [
+  { icon: UploadIcon, title: "Drop in a long video", body: "Podcast, stream, sermon, skit or vlog. It stays on your device." },
+  { icon: SparkIcon, title: "AI finds the viral moments", body: "Every clip is scored on hook, curiosity, emotion, value and pacing." },
+  { icon: BoltIcon, title: "Export ready-to-post clips", body: "Vertical 9:16, captioned, with a title, caption and hashtags." },
+];
 
 const FEATURES = [
   {
     icon: SparkIcon,
-    title: "AI finds the best moments",
-    body: "It listens for speech, laughter and music and watches for action, then keeps only the parts worth watching.",
-  },
-  {
-    icon: ScissorsIcon,
-    title: "Removes silences automatically",
-    body: "Pauses, dead air and 'umm' gaps disappear in one click. Perfect for talking-head videos and voice notes.",
+    title: "Viral Clip Finder",
+    body: "Finds the moments most likely to perform, explains why, and writes the post for you.",
   },
   {
     icon: LayersIcon,
-    title: "Stitch anything together",
-    body: "Portrait, landscape, MP4, MOV, WebM, with or without sound. Everything joins into one clean MP4.",
+    title: "Auto-captions",
+    body: "Word-by-word captions in styles that hold attention. Transcribed on your device, in English and many other languages.",
   },
   {
     icon: SplitIcon,
-    title: "Split for Status, Reels & Shorts",
-    body: "Chop a long video into 15, 30 or 60-second parts ready to post, in one step.",
+    title: "Reframe for every platform",
+    body: "9:16 for Reels, TikTok, Shorts and Status, 1:1 for feeds, 16:9 for YouTube. Blurred fill or crop.",
+  },
+  {
+    icon: ScissorsIcon,
+    title: "Auto-edit",
+    body: "Make a highlight of any length, remove silences, or just type what you want in plain English.",
   },
   {
     icon: LockIcon,
     title: "Private by design",
-    body: "Your videos are processed on your own device. Nothing is uploaded, so nothing can leak.",
+    body: "Your videos are processed in your browser. Nothing is uploaded, so nothing can leak.",
   },
   {
     icon: ClockIcon,
@@ -45,15 +111,41 @@ const FEATURES = [
   },
 ];
 
-const STEPS = [
-  { icon: UploadIcon, title: "Drop in your videos", body: "Add one or many. They stay on your device." },
-  { icon: SparkIcon, title: "Let AI edit, or tell it what to do", body: "“Make a 30s highlight.” Done in seconds." },
-  { icon: BoltIcon, title: "Export and share", body: "One stitched MP4, or every part as its own file." },
+const PLANS = [
+  {
+    name: "Free",
+    blurb: "Feel the magic",
+    features: [
+      "Your #1 viral clip from every video",
+      `Captions on the first ${PLAN_LIMITS.free.captionSeconds}s`,
+      "9:16 reframing, AI auto-edit",
+      "Small watermark, 720p",
+    ],
+  },
+  {
+    name: "Pro",
+    blurb: "Post every day",
+    features: [
+      `Top ${PLAN_LIMITS.pro.viralClipExports} viral clips per video`,
+      "Captions on the whole video",
+      "No watermark, full quality",
+      "Unlimited stitching",
+    ],
+  },
+  {
+    name: "Studio",
+    blurb: "The clipping machine",
+    highlight: true,
+    features: [
+      "Unlimited viral clips + post kits",
+      "All caption styles (Bold Pop, Karaoke…)",
+      "Your logo on every export",
+      "AI-written picks and titles",
+    ],
+  },
 ];
 
-const USE_CASES = ["WhatsApp Status", "Instagram Reels", "YouTube Shorts", "TikTok", "Podcast clips", "Event recaps", "Church & school events", "Product demos"];
-
-// Timeline blocks for the hero illustration; `pick` ones light up as the AI "chooses" them.
+// Timeline blocks for the auto-edit illustration; `pick` ones light up as the AI "chooses" them.
 const CLIPS = [
   { w: "w-[14%]", c: "from-[#8b7bff] to-[#6d5dfc]", pick: false },
   { w: "w-[18%]", c: "from-[#ff7ac6] to-[#e0569f]", pick: true, delay: "0s" },
@@ -68,27 +160,34 @@ const BARS = Array.from({ length: 36 }, (_, i) => ({
   d: `${(i % 9) * 0.11}s`,
 }));
 
+const delay = (ms: number) => ({ ["--reveal-delay" as string]: `${ms}ms` });
+
 export default function Home() {
+  const [left, middle, right] = SHOWCASE;
   return (
     <div className="flex flex-col gap-28 pb-10 sm:gap-36">
-      <section className="relative grid items-center gap-12 pt-2 lg:grid-cols-[1.05fr_1fr]">
-        <div className="pointer-events-none absolute -left-40 -top-40 -z-10 size-[28rem] rounded-full bg-brand/25 blur-[120px] animate-drift" />
-        <div className="pointer-events-none absolute -right-32 top-20 -z-10 size-[24rem] rounded-full bg-brand-2/20 blur-[120px] animate-drift-slow" />
+      <section className="relative grid items-center gap-14 pt-2 lg:grid-cols-[1.1fr_1fr]">
+        {/* Glows span the full viewport width but are clipped to it, so phones don't zoom out to fit them. */}
+        <div className="pointer-events-none absolute -top-40 bottom-0 left-1/2 -z-10 w-screen -translate-x-1/2 overflow-hidden">
+          <div className="absolute -top-20 left-[calc(50%-36rem)] size-[28rem] rounded-full bg-brand/25 blur-[120px] animate-drift" />
+          <div className="absolute right-[calc(50%-34rem)] top-60 size-[24rem] rounded-full bg-brand-2/20 blur-[120px] animate-drift-slow" />
+        </div>
 
         <div className="flex flex-col items-start gap-6">
           <span className="badge badge-pro">
-            <SparkIcon size={13} /> New · AI Auto-edit
+            <SparkIcon size={13} /> New · Viral Clip Finder
           </span>
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
-            Drop in your videos. <span className="text-gradient">AI cuts the best parts.</span>
+            One long video in. <span className="text-gradient">A week of viral clips out.</span>
           </h1>
           <p className="max-w-xl text-lg text-muted text-pretty">
-            Anti-Timeout finds the highlights, removes the silences and stitches everything together, right in your
-            browser. No uploads, no waiting, no editing skills needed.
+            Anti-Timeout watches your video like a top editor: it finds the moments with the strongest hooks, adds
+            word-by-word captions, reframes them for Reels, TikTok and Shorts, and scores every clip&apos;s viral
+            potential. All in your browser.
           </p>
           <div className="flex flex-wrap gap-3">
             <HardLink href="/editor" className="btn btn-primary btn-lg">
-              Start editing free <ArrowRightIcon />
+              Find my viral clips, free <ArrowRightIcon />
             </HardLink>
             <HardLink href="/pricing" className="btn btn-secondary btn-lg">
               See pricing
@@ -99,28 +198,107 @@ export default function Home() {
           </p>
         </div>
 
-        <HeroEditor />
+        <div className="relative mx-auto w-full max-w-md" aria-hidden="true">
+          <div className="absolute left-2 top-10 w-[44%] -rotate-[8deg] opacity-80">
+            <ShowcasePhone clip={left} hasVideo={hasVideo(left)} />
+          </div>
+          <div className="absolute right-2 top-10 w-[44%] rotate-[8deg] opacity-80">
+            <ShowcasePhone clip={right} hasVideo={hasVideo(right)} />
+          </div>
+          <div className="relative z-10 mx-auto w-[58%] animate-float">
+            <ShowcasePhone clip={middle} hasVideo={hasVideo(middle)} priority className="shadow-brand/30" />
+            <span className="absolute -right-3 top-16 rounded-xl border border-line bg-surface/90 px-3 py-2 text-xs shadow-xl backdrop-blur sm:-right-16">
+              <span className="block text-subtle">Hook</span>
+              <span className="font-mono text-base font-semibold text-ok">97</span>
+            </span>
+            <span className="absolute -left-3 top-1/3 rounded-xl border border-line bg-surface/90 px-3 py-2 text-xs shadow-xl backdrop-blur sm:-left-16">
+              <span className="block text-subtle">Clips found</span>
+              <span className="font-mono text-base font-semibold">10</span>
+            </span>
+          </div>
+        </div>
       </section>
 
-      <section className="reveal flex flex-col items-center gap-6 text-center">
-        <p className="text-sm font-medium text-brand">Just tell it what you want</p>
-        <h2 className="max-w-2xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-          Type a request. The editor does the rest.
-        </h2>
-        <div className="w-full max-w-2xl">
-          <TypingCommand />
+      <section className="reveal grid gap-4 md:grid-cols-2">
+        <div className="card flex flex-col gap-3 p-6 sm:p-8">
+          <span className="text-sm font-medium text-subtle">The old way</span>
+          <p className="text-xl font-semibold">Scrub through hours of footage, guess what will hit, caption by hand.</p>
+          <p className="text-sm text-muted">
+            Upload to a slow website, wait in a queue, and watch it time out halfway through your 2-hour video.
+          </p>
         </div>
-        <p className="max-w-xl text-muted">
-          Ask for a highlight of any length, cut the intro, split for Status, reorder clips, or export, all in plain
-          English.
+        <div className="card relative flex flex-col gap-3 overflow-hidden border-brand/40 p-6 sm:p-8">
+          <div className="pointer-events-none absolute -right-16 -top-16 size-48 rounded-full bg-brand/25 blur-3xl" />
+          <span className="relative text-sm font-medium text-brand">With Anti-Timeout</span>
+          <p className="relative text-xl font-semibold">Drop the video in. Get ranked, captioned, vertical clips in minutes.</p>
+          <p className="relative text-sm text-muted">
+            Nothing to upload, no queue, no time limit. Your device does the work, so a 2-hour video is no problem.
+          </p>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-10">
+        <SectionHeading
+          eyebrow="Content psychology, built in"
+          title="Every clip is scored on the five things that make people stop scrolling."
+        />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {SIGNALS.map((s, i) => (
+            <div key={s.name} className="reveal card relative flex flex-col gap-3 overflow-hidden p-5" style={delay(i * 90)}>
+              <span className="text-2xl">{s.emoji}</span>
+              <h3 className="font-medium">{s.name}</h3>
+              <p className="text-sm leading-relaxed text-muted">{s.body}</p>
+              <span className="mt-auto h-1 overflow-hidden rounded-full bg-surface-3">
+                <span className="block h-full w-full origin-left rounded-full bg-gradient-to-r from-brand to-brand-2 animate-bar" style={{ animationDelay: `${i * 0.2}s` }} />
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="reveal max-w-2xl text-sm text-subtle">
+          Each pick comes with the reasons behind its score, a title, a caption and hashtags. On Studio, AI re-reads the
+          whole transcript to pick and write like a seasoned clipper. Scores are a guide, not a promise: your audience
+          decides.
         </p>
+      </section>
+
+      <section className="flex flex-col gap-10">
+        <SectionHeading eyebrow="Made for" title="Clippers, skit makers, faceless channels, and everyone in between." />
+        <div className="grid items-center gap-10 lg:grid-cols-[1fr_1.4fr]">
+          <div className="reveal mx-auto flex w-full max-w-sm gap-3 lg:order-2 lg:max-w-none" aria-hidden="true">
+            {SHOWCASE.map((clip, i) => (
+              <ShowcasePhone key={clip.src} clip={clip} hasVideo={hasVideo(clip)} className={i === 1 ? "lg:-translate-y-6" : ""} />
+            ))}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {CREATORS.map((c, i) => (
+              <div key={c.title} className="reveal card flex flex-col gap-2 p-5" style={delay((i % 2) * 100)}>
+                <span className="text-2xl">{c.emoji}</span>
+                <h3 className="font-medium">{c.title}</h3>
+                <p className="text-sm leading-relaxed text-muted">{c.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid items-center gap-12 lg:grid-cols-2">
+        <div className="reveal flex flex-col gap-5">
+          <p className="text-sm font-medium text-brand">Just tell it what you want</p>
+          <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">An editor that takes instructions.</h2>
+          <TypingCommand />
+          <p className="text-muted">
+            Ask for a highlight of any length, remove the silences, cut the intro, split for Status, reorder clips or
+            export, in plain English.
+          </p>
+        </div>
+        <HeroEditor />
       </section>
 
       <section className="flex flex-col gap-10">
         <SectionHeading eyebrow="How it works" title="From raw footage to ready-to-post in three steps." />
         <ol className="grid gap-4 md:grid-cols-3">
           {STEPS.map(({ icon: Icon, title, body }, i) => (
-            <li key={title} className="reveal card relative flex flex-col gap-4 overflow-hidden p-6" style={{ ["--reveal-delay" as string]: `${i * 120}ms` }}>
+            <li key={title} className="reveal card relative flex flex-col gap-4 overflow-hidden p-6" style={delay(i * 120)}>
               <span className="absolute right-5 top-4 font-mono text-5xl font-semibold text-white/[0.04]">0{i + 1}</span>
               <span className="grid size-11 place-items-center rounded-xl bg-brand/12 text-brand">
                 <Icon size={20} />
@@ -133,13 +311,13 @@ export default function Home() {
       </section>
 
       <section className="flex flex-col gap-10">
-        <SectionHeading eyebrow="Features" title="Everything you need to cut and join videos, nothing you don't." />
+        <SectionHeading eyebrow="Features" title="Everything a creator needs to repurpose video, nothing they don't." />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ icon: Icon, title, body }, i) => (
             <div
               key={title}
               className="reveal card group flex flex-col gap-3 p-6 transition-[border-color,transform] duration-300 hover:-translate-y-1 hover:border-brand/40"
-              style={{ ["--reveal-delay" as string]: `${(i % 3) * 100}ms` }}
+              style={delay((i % 3) * 100)}
             >
               <span className="grid size-10 place-items-center rounded-xl bg-brand/12 text-brand transition-transform duration-300 group-hover:scale-110">
                 <Icon size={20} />
@@ -151,28 +329,46 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="reveal flex flex-col items-center gap-6 text-center">
-        <p className="text-sm font-medium text-brand">Made for</p>
-        <div className="flex max-w-3xl flex-wrap justify-center gap-2.5">
-          {USE_CASES.map((u) => (
-            <span key={u} className="rounded-full border border-line bg-surface px-4 py-2 text-sm text-muted">
-              {u}
-            </span>
+      <section className="flex flex-col gap-10">
+        <SectionHeading eyebrow="Plans" title="Start free. Upgrade when the clips start working." />
+        <div className="grid gap-4 md:grid-cols-3">
+          {PLANS.map((plan, i) => (
+            <div
+              key={plan.name}
+              className={`reveal card relative flex flex-col gap-4 overflow-hidden p-6 ${plan.highlight ? "border-brand/50 shadow-xl shadow-brand/15" : ""}`}
+              style={delay(i * 100)}
+            >
+              {plan.highlight && <div className="pointer-events-none absolute -right-20 -top-20 size-56 rounded-full bg-brand-2/20 blur-3xl" />}
+              <div className="relative flex items-center justify-between">
+                <h3 className="text-lg font-semibold">{plan.name}</h3>
+                <span className={`badge ${plan.highlight ? "badge-pro" : ""}`}>{plan.blurb}</span>
+              </div>
+              <ul className="relative flex flex-col gap-2.5 text-sm">
+                {plan.features.map((f) => (
+                  <li key={f} className="flex gap-2">
+                    <CheckIcon size={16} className="mt-0.5 shrink-0 text-ok" /> <span className="text-muted">{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
         </div>
+        <HardLink href="/pricing" className="reveal btn btn-secondary self-start">
+          See prices in naira <ArrowRightIcon />
+        </HardLink>
       </section>
 
       <section className="reveal card relative overflow-hidden px-6 py-14 text-center sm:px-12">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(40rem_16rem_at_50%_0%,rgb(139_123_255/0.25),transparent_70%)]" />
         <div className="pointer-events-none absolute -bottom-24 left-1/2 size-72 -translate-x-1/2 rounded-full bg-brand-2/15 blur-3xl animate-drift" />
         <div className="relative flex flex-col items-center gap-5">
-          <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Your next video is 30 seconds away.</h2>
+          <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Your next viral clip is already in your camera roll.</h2>
           <p className="max-w-xl text-muted">
-            Free for quick edits. Pro unlocks unlimited stitching and full-quality exports, billed monthly in naira.
+            Drop in any long video and see its best moments, scored and captioned, in a few minutes. Free, no sign-up.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <HardLink href="/editor" className="btn btn-primary btn-lg">
-              Open the editor <ArrowRightIcon />
+              Find my viral clips <ArrowRightIcon />
             </HardLink>
             <HardLink href="/pricing" className="btn btn-secondary btn-lg">
               Compare plans

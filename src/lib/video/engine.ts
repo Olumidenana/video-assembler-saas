@@ -141,7 +141,7 @@ export class VideoEngine {
     args: string[],
     output: string,
     options: RunOptions,
-    files: Record<string, string> = {},
+    files: Record<string, string | Uint8Array> = {},
   ): Promise<Uint8Array> {
     return this.execute(clipIds, args, options, files, [output], async (ffmpeg) => {
       return (await ffmpeg.readFile(output)) as Uint8Array;
@@ -167,7 +167,7 @@ export class VideoEngine {
     clipIds: string[],
     args: string[],
     { totalDuration, onProgress }: RunOptions,
-    files: Record<string, string>,
+    files: Record<string, string | Uint8Array>,
     outputs: string[],
     collect: (ffmpeg: FFmpeg) => Promise<T>,
   ): Promise<T> {
@@ -190,7 +190,12 @@ export class VideoEngine {
       });
       this.timeListeners.add(report);
       try {
-        for (const [path, text] of Object.entries(files)) await ffmpeg.writeFile(path, text);
+        for (const [path, data] of Object.entries(files)) {
+          const dir = path.slice(0, path.lastIndexOf("/"));
+          if (dir) await ffmpeg.createDir(dir).catch(() => {}); // Already exists is fine.
+          // writeFile transfers the buffer to the worker, so pass a copy: callers cache these (fonts, logo).
+          await ffmpeg.writeFile(path, typeof data === "string" ? data : data.slice());
+        }
         const code = await ffmpeg.exec(args);
         if (code !== 0) {
           throw new FFmpegExitError(`FFmpeg failed (exit ${code}).\n${tail.join("\n")}`);
@@ -215,6 +220,24 @@ export class VideoEngine {
       onProgress,
     });
     return parseAnalysis(files, info);
+  }
+
+  /** Decodes part of a clip's audio as 16 kHz mono float samples (speech recognition input). */
+  async extractAudio(clipId: string, start: number, duration: number): Promise<Float32Array> {
+    const out = "/speech.f32";
+    const bytes = await this.run(
+      [clipId],
+      [
+        "-ss", start.toFixed(3), "-t", duration.toFixed(3), "-i", clipPath(clipId),
+        "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-c:a", "pcm_f32le", out,
+      ],
+      out,
+      { totalDuration: duration },
+    );
+    // Copy into an aligned buffer (it's transferred to the speech worker).
+    const aligned = new Uint8Array(bytes.byteLength - (bytes.byteLength % 4));
+    aligned.set(bytes.subarray(0, aligned.byteLength));
+    return new Float32Array(aligned.buffer);
   }
 
   /** Stops whatever is running. Queued operations fail with CancelledError. */

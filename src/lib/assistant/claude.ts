@@ -93,3 +93,115 @@ export async function planActions(command: string, timeline: TimelineSummary): P
     actions: sanitizeActions(parsed.actions),
   };
 }
+
+const VIRAL_SYSTEM = `You are a short-form content strategist for Reels, TikTok, YouTube Shorts and WhatsApp Status. You pick the moments from a long video that are most likely to stop the scroll and be watched to the end.
+
+Judge with content psychology:
+- Hook (first 1-3 seconds): pattern interrupts, bold claims, questions, "you"-language, specific numbers, conflict. The first sentence must work with no context.
+- Curiosity gap: open loops that make people stay for the answer.
+- Emotion: humour, surprise, outrage, inspiration, relatability, high-energy delivery.
+- Value / payoff: a clear takeaway, story resolution, punchline or lesson by the end.
+- Pacing and standalone sense: no dead air, no references to things the viewer didn't see.
+
+The transcript is split into numbered sentences with timestamps. Each clip is a contiguous run of sentences (start_sentence..end_sentence inclusive) within the requested length. Clips must not overlap. Prefer starting on a sentence that works as a hook.
+
+For each clip, write: a scroll-stopping title (max 70 characters), a social caption (1-2 short sentences, may include one emoji), 3-6 relevant hashtags, and 1-3 short reasons naming the psychology at work. Score each dimension 0-100 honestly; most moments are average.
+
+Work in the language of the transcript (including Nigerian Pidgin).`;
+
+const VIRAL_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["clips"],
+  properties: {
+    clips: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["start_sentence", "end_sentence", "hook", "curiosity", "emotion", "value", "pacing", "reasons", "title", "caption", "hashtags"],
+        properties: {
+          start_sentence: { type: "integer" },
+          end_sentence: { type: "integer" },
+          hook: { type: "integer" },
+          curiosity: { type: "integer" },
+          emotion: { type: "integer" },
+          value: { type: "integer" },
+          pacing: { type: "integer" },
+          reasons: { type: "array", items: { type: "string" } },
+          title: { type: "string" },
+          caption: { type: "string" },
+          hashtags: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+  },
+} as const;
+
+export interface ViralPick {
+  startSentence: number;
+  endSentence: number;
+  scores: { hook: number; curiosity: number; emotion: number; value: number; pacing: number };
+  reasons: string[];
+  title: string;
+  caption: string;
+  hashtags: string[];
+}
+
+/** Asks Claude to pick and package the most viral moments from a transcript. */
+export async function planViralClips(
+  sentences: { text: string; start: number; end: number }[],
+  { minSeconds, maxSeconds, count }: { minSeconds: number; maxSeconds: number; count: number },
+): Promise<ViralPick[]> {
+  const client = new Anthropic({ timeout: 60_000, maxRetries: 1 });
+  const transcript = sentences.map((s, i) => `[${i}] (${s.start.toFixed(1)}-${s.end.toFixed(1)}s) ${s.text}`).join("\n");
+
+  const response = await client.beta.messages.create({
+    model: MODEL,
+    max_tokens: 8000,
+    output_config: { effort: "low", format: { type: "json_schema", schema: VIRAL_SCHEMA } },
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    system: VIRAL_SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: `Find up to ${count} clips, each ${minSeconds}-${maxSeconds} seconds long, best first.\n\nTranscript:\n${transcript}`,
+      },
+    ],
+  });
+
+  if (response.stop_reason === "refusal") throw new AssistantError("I can't help with that video.");
+  const text = response.content.find((b) => b.type === "text");
+  if (!text || text.type !== "text") throw new AssistantError("No answer from the assistant.");
+  let parsed: { clips?: unknown };
+  try {
+    parsed = JSON.parse(text.text);
+  } catch {
+    throw new AssistantError("The assistant's answer couldn't be read.");
+  }
+
+  const n = sentences.length;
+  const score = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 50);
+  const strings = (v: unknown, max: number, len: number) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, max).map((x) => x.slice(0, len)) : [];
+
+  return (Array.isArray(parsed.clips) ? parsed.clips : [])
+    .slice(0, count)
+    .flatMap((c: Record<string, unknown>) => {
+      const a = Number(c.start_sentence);
+      const b = Number(c.end_sentence);
+      if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < a || b >= n) return [];
+      return [
+        {
+          startSentence: a,
+          endSentence: b,
+          scores: { hook: score(c.hook), curiosity: score(c.curiosity), emotion: score(c.emotion), value: score(c.value), pacing: score(c.pacing) },
+          reasons: strings(c.reasons, 3, 60),
+          title: typeof c.title === "string" ? c.title.slice(0, 80) : "",
+          caption: typeof c.caption === "string" ? c.caption.slice(0, 300) : "",
+          hashtags: strings(c.hashtags, 6, 40).map((h) => (h.startsWith("#") ? h : `#${h}`).replace(/\s+/g, "")),
+        },
+      ];
+    });
+}

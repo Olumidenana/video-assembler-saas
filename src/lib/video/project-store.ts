@@ -4,6 +4,7 @@
  * browser's own storage; nothing leaves the device.
  */
 import type { ClipAnalysis } from "./analysis";
+import type { Word } from "./captions";
 import type { MediaInfo } from "./types";
 
 const DB_NAME = "anti-timeout";
@@ -22,6 +23,7 @@ export interface StoredClip {
   blob: Blob;
   info: MediaInfo;
   analysis?: ClipAnalysis;
+  transcript?: Word[];
 }
 
 export interface StoredProject {
@@ -76,6 +78,11 @@ export const projectStore = {
   async saveAnalysis(id: string, analysis: ClipAnalysis): Promise<void> {
     const existing = await run<StoredClip>(CLIPS, "readonly", (s) => s.get(id));
     if (existing) await run(CLIPS, "readwrite", (s) => s.put({ ...existing, analysis }));
+  },
+
+  async saveTranscript(id: string, transcript: Word[]): Promise<void> {
+    const existing = await run<StoredClip>(CLIPS, "readonly", (s) => s.get(id));
+    if (existing) await run(CLIPS, "readwrite", (s) => s.put({ ...existing, transcript }));
   },
 
   async deleteClip(id: string): Promise<void> {

@@ -32,6 +32,14 @@ const nextConfig: NextConfig = {
       { source: "/editor", headers: isolationHeaders },
       { source: "/editor/:path*", headers: isolationHeaders },
       {
+        // Speech recognition worker and its self-hosted libraries, used by the isolated editor.
+        source: "/:dir(workers|vendor)/:path*",
+        headers: [
+          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+          { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+        ],
+      },
+      {
         // Self-hosted FFmpeg core (copied by scripts/copy-ffmpeg-core.mjs).
         // Workers spawned from these files need COEP themselves to stay isolated.
         source: "/ffmpeg/:path*",
