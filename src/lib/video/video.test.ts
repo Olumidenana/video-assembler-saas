@@ -144,6 +144,16 @@ describe("command builders", () => {
     expect(graph).toContain("[musdry]volume=0.45[musfloor]");
   });
 
+  it("draws a progress bar that fills over the whole video", () => {
+    const args = buildReencodeArgs([item({ start: 0, end: 4 }), item({ clipId: "b", start: 0, end: 6 })], { width: 720, height: 1280, fps: 30 }, "/out.mp4", {
+      progressBar: true,
+    });
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    expect(graph).toContain("color=c=0x8b7bff:s=720x6:r=30:d=10.000[barsrc]");
+    expect(graph).toContain("overlay=x='-W+W*t/10.000':y=H-h:eof_action=pass[vbar]");
+    expect(graph).toContain("[vbar]null[vout]");
+  });
+
   it("plays music alone when the original sound is off", () => {
     const args = buildReencodeArgs([item()], { width: 1280, height: 720, fps: 30 }, "/out.mp4", {
       music: { path: "/music.wav", volume: 1, original: 0, duck: true },

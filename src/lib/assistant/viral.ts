@@ -281,7 +281,8 @@ export function findClipsByScene(clipId: string, duration: number, analysis: Cli
       hook: `Peaks ${mmss(m.peak - m.start)} in`,
       reasons: reasons.length ? reasons : ["Steady energy"],
       title: `Scene ${i + 1} · ${mmss(m.start)}`,
-      caption: sig.build >= 0.6 ? "Wait for it… 🔥" : "This scene 🔥",
+      // Hook-style lines from the clip's shape (it builds, it's intense, or a slow burn), without claiming what's in it.
+      caption: sig.build >= 0.6 && m.arc ? "Wait for it… 😳" : sig.intensity >= 0.6 || sig.peak >= 0.85 ? "This part goes hard 🔥" : "Watch till the end 👀",
       hashtags: ["#shorts", "#reels", "#fyp"],
     };
   });

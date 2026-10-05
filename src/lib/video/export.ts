@@ -34,6 +34,8 @@ export interface ExportOptions {
   logo?: Uint8Array | null;
   /** Builds the ASS captions for one render's items (in output time), or null for none. */
   captions?: (items: ExportItem[], canvas: Canvas) => string | null;
+  /** A bar along the bottom that fills as the video plays. */
+  progressBar?: boolean;
   /** Background music for one render's items (composed to fit them), or null for none. */
   music?: (items: ExportItem[], duration: number) => Promise<MusicTrack | null>;
   onProgress?: (ratio: number) => void;
@@ -47,7 +49,7 @@ export interface MusicTrack extends Omit<MusicMix, "path"> {
 
 /** Overlays, reframing and music change the picture or sound, which stream copy can't do. */
 const needsPixels = (o: ExportOptions) =>
-  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music);
+  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music) || Boolean(o.progressBar);
 
 /** Which method an export of these items will use. */
 export function chooseMethod(items: ExportItem[], options: ExportOptions): ExportMethod {
@@ -115,6 +117,7 @@ async function render(
             logo: Boolean(options.logo),
             captions: Boolean(ass),
             music,
+            progressBar: options.progressBar,
           }),
           output,
           { totalDuration, onProgress },

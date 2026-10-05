@@ -54,3 +54,17 @@ describe("captions", () => {
     expect(buildAss(words([["{\\evil}", 0, 1]]), "clean", { width: 640, height: 360, fps: 30 })).toContain(",,evil");
   });
 });
+
+describe("hook title", () => {
+  const canvas = { width: 720, height: 1280, fps: 30 };
+
+  it("adds a top-centred hook for the opening seconds, even without captions", () => {
+    const ass = buildAss([], "clean", canvas, { hook: { text: "He didn't see this {coming}", seconds: 3 } });
+    expect(ass).toContain("Style: Hook,Anton,");
+    expect(ass).toMatch(/Dialogue: 1,0:00:00\.00,0:00:03\.00,Hook,,0,0,0,,\{\\fad\(120,300\)\}He didn't see this coming/);
+  });
+
+  it("leaves the hook out when there's no text", () => {
+    expect(buildAss([], "clean", canvas, { hook: { text: "  ", seconds: 3 } })).not.toContain("Dialogue: 1,");
+  });
+});

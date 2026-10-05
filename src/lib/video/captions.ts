@@ -86,7 +86,12 @@ export function groupWords(words: Word[], maxWords: number, maxChars: number): W
   return groups;
 }
 
-export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas): string {
+export interface AssExtras {
+  /** Big title over the opening seconds ("the hook"), shown with or without captions. */
+  hook?: { text: string; seconds: number };
+}
+
+export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, extras: AssExtras = {}): string {
   const { width: W, height: H } = canvas;
   const portrait = H > W;
   const base = Math.min(W, H);
@@ -103,6 +108,10 @@ export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas): 
   };
 
   const events: string[] = [];
+  const hook = extras.hook && clean(extras.hook.text).trim();
+  if (hook && extras.hook) {
+    events.push(`Dialogue: 1,${assTime(0)},${assTime(extras.hook.seconds)},Hook,,0,0,0,,{\\fad(120,300)}${hook}`);
+  }
   const line = (start: number, end: number, text: string) =>
     events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${text}`);
 
@@ -148,6 +157,8 @@ export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas): 
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     styles[style],
+    // Hook: Anton, top centre, on a translucent box so it reads over any picture.
+    `Style: Hook,Anton,${Math.round(base * (portrait ? 0.085 : 0.07))},${WHITE},${WHITE},&HA0000000,&HA0000000,0,0,0,0,100,100,1,0,3,${Math.max(8, Math.round(base * 0.018))},0,8,${marginH},${marginH},${Math.round(H * (portrait ? 0.12 : 0.07))},1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

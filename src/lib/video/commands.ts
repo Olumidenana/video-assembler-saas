@@ -134,6 +134,8 @@ export interface Overlays {
   captions?: boolean;
   /** Background music from `path`, mixed under the original sound. */
   music?: MusicMix;
+  /** A thin bar along the bottom that fills as the video plays (keeps people watching to the end). */
+  progressBar?: boolean;
 }
 
 export interface MusicMix {
@@ -200,7 +202,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     pairs.push(`[v${i}][a${i}]`);
   });
 
-  const hasPost = overlays.watermark || overlays.logo || overlays.captions;
+  const hasPost = overlays.watermark || overlays.logo || overlays.captions || overlays.progressBar;
   const music = overlays.music;
   filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[${hasPost ? "vjoined" : "vout"}][${music ? "ajoined" : "aout"}]`);
   // Extra inputs (logo, music) come after the clips, in the order they're added.
@@ -232,6 +234,14 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
           `x=w-tw-${margin}:y=h-th-${margin}`,
         "vmark",
       );
+    }
+    if (overlays.progressBar) {
+      // A bar the width of the frame slides in from the left over the whole video.
+      const total = items.reduce((sum, i) => sum + i.end - i.start, 0);
+      const h = Math.max(4, Math.round(Math.min(W, H) * 0.008));
+      filters.push(`color=c=0x8b7bff:s=${W}x${h}:r=${fps}:d=${secs(total)}[barsrc]`);
+      filters.push(`[${current}][barsrc]overlay=x='-W+W*t/${secs(total)}':y=H-h:eof_action=pass[vbar]`);
+      current = "vbar";
     }
     filters.push(`[${current}]null[vout]`);
   }

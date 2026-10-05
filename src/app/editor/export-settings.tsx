@@ -15,6 +15,9 @@ export interface ExportSettings {
   captionStyle: CaptionStyleId;
   speech: SpeechOptions;
   music: MusicSettings;
+  /** Big title over the first seconds; empty text = the viral clip's title. */
+  hook: { on: boolean; text: string };
+  progressBar: boolean;
 }
 
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
@@ -24,6 +27,8 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   captionStyle: "clean",
   speech: DEFAULT_SPEECH,
   music: DEFAULT_MUSIC,
+  hook: { on: false, text: "" },
+  progressBar: false,
 };
 
 const ASPECTS: { id: Aspect; label: string; hint: string }[] = [
@@ -109,6 +114,37 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
             <SpeechControls speech={settings.speech} onChange={(speech) => set({ speech })} />
           </>
         )}
+      </div>
+
+      <div className="flex flex-col gap-2" data-testid="boosters">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="text-sm font-medium">Retention boosters</span>
+          <span className="text-xs text-muted">Tricks that keep people watching past the first seconds.</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={settings.hook.on}
+              onChange={(e) => set({ hook: { ...settings.hook, on: e.target.checked } })}
+              className="accent-brand"
+            />
+            Hook title for the first 3 seconds
+          </label>
+          {settings.hook.on && (
+            <input
+              value={settings.hook.text}
+              onChange={(e) => set({ hook: { ...settings.hook, text: e.target.value.slice(0, 80) } })}
+              placeholder="Auto: the viral clip's title, or type one"
+              className="input h-8 min-w-0 flex-1 basis-56"
+              aria-label="Hook text"
+            />
+          )}
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={settings.progressBar} onChange={(e) => set({ progressBar: e.target.checked })} className="accent-brand" />
+          Progress bar along the bottom
+        </label>
       </div>
 
       <div id="tool-music" className="scroll-mt-32">

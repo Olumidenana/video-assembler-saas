@@ -640,12 +640,18 @@ export function Editor({ plan }: { plan: PlanId }) {
       fit: settings.fit,
       watermark: limits.watermark,
       logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
-      captions: settings.captions
-        ? (renderItems: ExportItem[], canvas: Parameters<typeof buildAss>[2]) => {
-            const words = wordsForOutput(renderItems, Object.fromEntries(transcripts.current), limits.captionSeconds);
-            return words.length ? buildAss(words, style, canvas) : null;
-          }
-        : undefined,
+      captions:
+        settings.captions || settings.hook.on
+          ? (renderItems: ExportItem[], canvas: Parameters<typeof buildAss>[2]) => {
+              const words = settings.captions
+                ? wordsForOutput(renderItems, Object.fromEntries(transcripts.current), limits.captionSeconds)
+                : [];
+              const hookText = settings.hook.on ? hookFor(renderItems) : null;
+              if (!words.length && !hookText) return null;
+              return buildAss(words, style, canvas, hookText ? { hook: { text: hookText, seconds: 3 } } : {});
+            }
+          : undefined,
+      progressBar: settings.progressBar,
       music:
         composed || (music.style === "own" && ownTrack)
           ? async (renderItems: ExportItem[], duration: number) => {
@@ -681,6 +687,22 @@ export function Editor({ plan }: { plan: PlanId }) {
     }
   }
 
+  /**
+   * The hook title for one render: the user's text, or the title of the viral
+   * clip being exported (scene clips get their caption, since "Scene 2 · 6:30"
+   * isn't a hook). Null when there's nothing to say.
+   */
+  function hookFor(renderItems: ExportItem[]): string | null {
+    // The caption fonts have no emoji, so they'd burn in as empty boxes.
+    const plain = (t: string) => t.replace(/\p{Extended_Pictographic}|\uFE0F/gu, "").replace(/\s+/g, " ").trim();
+    const custom = plain(settings.hook.text);
+    if (custom) return custom;
+    const first = renderItems[0];
+    const clip = viral?.clips.find((c) => c.clipId === first?.clipId && Math.abs(c.start - first.start) < 0.3);
+    if (!clip) return null;
+    return plain(viral?.basis === "scenes" ? clip.caption : clip.title) || "Wait for it…";
+  }
+
   function cancelExport() {
     engine.cancel();
     // Warm the engine back up so the next action doesn't wait for a reload.
@@ -707,8 +729,9 @@ export function Editor({ plan }: { plan: PlanId }) {
         aspect: settings.aspect,
         watermark: limits.watermark,
         logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
-        captions: settings.captions ? () => null : undefined,
+        captions: settings.captions || settings.hook.on ? () => null : undefined,
         music: settings.music.style !== "none" ? async () => null : undefined,
+        progressBar: settings.progressBar,
       }),
     ),
   );
