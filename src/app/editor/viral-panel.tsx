@@ -69,7 +69,7 @@ export function ViralPanel(props: Props) {
   const unlocked = clips?.slice(0, exportable) ?? [];
 
   return (
-    <section className="card relative flex flex-col gap-5 overflow-hidden p-5 sm:p-6" data-testid="viral-panel">
+    <section id="tool-viral" className="card relative flex scroll-mt-32 flex-col gap-5 overflow-hidden p-5 sm:p-6" data-testid="viral-panel">
       <div className="pointer-events-none absolute -left-20 -top-24 size-72 rounded-full bg-brand-2/15 blur-3xl" />
       <div className="relative flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">

@@ -22,6 +22,7 @@ import { findClipsByScene, findViralClips, overallScore, toSentences, type Viral
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
 import { TaskBanner } from "./task-banner";
+import { WorkspaceNav } from "./workspace-nav";
 import { forgetThumbnails } from "./thumbnails";
 import { DEFAULT_MUSIC, type OwnTrack } from "./music-controls";
 import { VIRAL_RANGES, ViralPanel, type VideoKind, type ViralRange } from "./viral-panel";
@@ -724,319 +725,324 @@ export function Editor({ plan }: { plan: PlanId }) {
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-2">
-        <EngineBadge status={engineStatus} mode={engine.mode} />
-        {memory === "saved" && (
-          <p className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-muted" data-testid="memory-status">
-            ✓ Saved on this device. Pick up where you left off anytime.
-          </p>
-        )}
-        {memory === "too-large" && (
-          <p className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-muted">
-            This project is too large to remember after you close the tab.
-          </p>
-        )}
-      </div>
-
-      {task && <TaskBanner key={task.label} label={task.label} progress={task.progress} onCancel={cancelTask} />}
-
-      {restore && (
-        <div className="card flex flex-wrap items-center justify-between gap-4 border-brand/40 p-5" data-testid="restore">
-          <div>
-            <p className="font-medium">Welcome back! Continue where you left off?</p>
-            <p className="text-sm text-muted">
-              Your project from {timeAgo(restore.savedAt)} ({restore.videos} video{restore.videos === 1 ? "" : "s"}) is saved on this
-              device.
+    <div className="lg:grid lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:gap-8">
+      <WorkspaceNav plan={plan} hasVideos={segments.length > 0} totalBytes={totalBytes} />
+      <div className="flex min-w-0 flex-col gap-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <EngineBadge status={engineStatus} mode={engine.mode} />
+          {memory === "saved" && (
+            <p className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-muted" data-testid="memory-status">
+              ✓ Saved on this device. Pick up where you left off anytime.
             </p>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" className="btn btn-ghost" onClick={() => void startFresh()}>
-              Start fresh
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => void restoreProject()} disabled={engineStatus === "error"}>
-              Restore project
-            </button>
-          </div>
+          )}
+          {memory === "too-large" && (
+            <p className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-muted">
+              This project is too large to remember after you close the tab.
+            </p>
+          )}
         </div>
-      )}
 
-      <input
-        ref={fileInput}
-        id="video-input"
-        type="file"
-        accept="video/*"
-        multiple
-        className="sr-only"
-        data-testid="file-input"
-        onChange={(e) => {
-          void addFiles([...(e.currentTarget.files ?? [])]);
-          e.currentTarget.value = "";
-        }}
-      />
-      {segments.length === 0 && !restore ? (
-        <StartPanel onPick={pickGoal} onDrop={(files) => void addFiles(files)} />
-      ) : (
-        <label
-          htmlFor="video-input"
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            void addFiles([...e.dataTransfer.files]);
-          }}
-          className={`group flex cursor-pointer flex-col items-center gap-3 rounded-2xl border border-dashed p-5 text-center transition-colors sm:flex-row sm:justify-center sm:text-left ${
-            dragging ? "border-brand bg-brand/10" : "border-line-strong bg-surface/60 hover:border-brand/60 hover:bg-surface"
-          }`}
-        >
-          <span className="grid size-11 place-items-center rounded-xl bg-brand/12 text-brand transition-transform group-hover:scale-105">
-            <UploadIcon size={20} />
-          </span>
-          <span className="flex flex-col gap-0.5">
-            <span className="font-medium">Add more videos</span>
-            <span className="text-sm text-muted">MP4, MOV or WebM. Files stay on your device; nothing is uploaded.</span>
-          </span>
-        </label>
-      )}
+        {task && <TaskBanner key={task.label} label={task.label} progress={task.progress} onCancel={cancelTask} />}
 
-      {pending.length > 0 && (
-        <p className="notice notice-info animate-pulse" role="status">
-          Reading {pending.join(", ")}…{goal && goal !== "stitch" ? ` Then ${GOAL_NEXT[goal]}.` : ""}
-        </p>
-      )}
-      {errors.length > 0 && (
-        <div className="notice notice-danger flex items-start justify-between gap-3" role="alert">
-          <div>
-            {errors.map((e, i) => (
-              <p key={i}>{e}</p>
-            ))}
-          </div>
-          <button type="button" className="shrink-0 underline" onClick={() => setErrors([])}>
-            Dismiss
-          </button>
-        </div>
-      )}
-      {totalBytes > LARGE_INPUT_BYTES && (
-        <p className="notice notice-warn">
-          You&apos;ve added {formatBytes(totalBytes)} of video. Large exports can crash the tab, especially on phones. If
-          that happens, export in smaller batches.
-        </p>
-      )}
-
-      {segments.length > 0 && (
-        <AutoEditPanel
-          disabled={engineStatus !== "ready" || running}
-          message={assistant}
-          canUndo={history.length > 0}
-          suggestions={suggestions}
-          analysing={analysing}
-          onSuggestion={(sg) => void applySuggestion(sg)}
-          onHighlights={(seconds) => void runActions([{ type: "highlights", seconds }])}
-          onRemoveSilence={() => void runActions([{ type: "remove_silence" }])}
-          onCommand={(text) => void runCommand(text)}
-          onUndo={undo}
-          onExport={() => {
-            void startExport();
-            document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
-          }}
-          onCancel={() => {
-            engine.cancel();
-            void engine.load().catch(() => setEngineStatus("error"));
-          }}
-        />
-      )}
-
-      {segments.length > 0 && (
-        <ViralPanel
-          clips={viral?.clips ?? null}
-          basis={viral?.basis ?? null}
-          busy={Boolean(task) || running || engineStatus !== "ready"}
-          exportable={limits.viralClipExports}
-          canImprove={plan !== "free"}
-          improved={viral?.improved ?? false}
-          clipName={(id) => clips[id]?.file.name ?? "video"}
-          clipUrl={(id) => clips[id]?.url}
-          speech={settings.speech}
-          onSpeech={(speech) => setSettings((s) => ({ ...s, speech }))}
-          onFind={(range, kind) => void findViral(range, kind)}
-          onImprove={() => void improveViral()}
-          onUse={useViralClip}
-          onExport={exportViralClips}
-        />
-      )}
-
-      {segments.length > 0 && (
-        <>
-          <Timeline
-            segments={segments}
-            colors={colors}
-            selectedId={selectedId}
-            total={totalDuration}
-            onSelect={(id) => dispatch({ type: "select", id })}
-          />
-          <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
+        {restore && (
+          <div className="card flex flex-wrap items-center justify-between gap-4 border-brand/40 p-5" data-testid="restore">
             <div>
-              {selected && (
-                <Player
-                  key={selected.clipId}
-                  clip={clips[selected.clipId]}
-                  segment={selected}
-                  onSetStart={(start) => dispatch({ type: "setRange", id: selected.id, start })}
-                  onSetEnd={(end) => dispatch({ type: "setRange", id: selected.id, end })}
-                  onSplit={(at) => dispatch({ type: "split", id: selected.id, at })}
-                  onSplitEvery={(seconds) => dispatch({ type: "splitEvery", id: selected.id, seconds })}
-                />
-              )}
+              <p className="font-medium">Welcome back! Continue where you left off?</p>
+              <p className="text-sm text-muted">
+                Your project from {timeAgo(restore.savedAt)} ({restore.videos} video{restore.videos === 1 ? "" : "s"}) is saved on this
+                device.
+              </p>
             </div>
-            <div className="flex flex-col gap-3">
-              <h2 className="flex items-center justify-between text-sm font-medium text-muted">
-                Segments
-                <span className="font-mono text-xs text-subtle">
-                  {segments.length} · {formatTime(totalDuration)}
-                </span>
-              </h2>
-              <SegmentList
-                segments={segments}
-                clips={clips}
-                colors={colors}
-                selectedId={selectedId}
-                onSelect={(id) => dispatch({ type: "select", id })}
-                onMove={(id, delta) => dispatch({ type: "move", id, delta })}
-                onRemove={removeSegment}
-                onSetRange={(id, range) => dispatch({ type: "setRange", id, ...range })}
-              />
+            <div className="flex gap-2">
+              <button type="button" className="btn btn-ghost" onClick={() => void startFresh()}>
+                Start fresh
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void restoreProject()} disabled={engineStatus === "error"}>
+                Restore project
+              </button>
             </div>
           </div>
-        </>
-      )}
+        )}
 
-      {segments.length > 0 && (
-        <section id="export" className="card flex scroll-mt-24 flex-col gap-5 p-5 sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Export</h2>
-            <span className="badge">
-              {methods.size === 1 && methods.has("copy")
-                ? "Fast join · no re-encode"
-                : methods.has("copy")
-                  ? "Mix of fast copy and re-encode"
-                  : "Re-encode · frame-accurate"}
-            </span>
-          </div>
-
-          <ExportSettingsPanel
-            settings={settings}
-            onChange={setSettings}
-            limits={limits}
-            disabled={running}
-            logoUrl={logo?.url ?? null}
-            onLogo={(f) => void changeLogo(f)}
-            ownTrack={ownTrack}
-            onOwnTrack={(file) => {
-              if (!file) return setOwnTrack(null);
-              void file.arrayBuffer().then((buf) =>
-                setOwnTrack({ name: file.name, bytes: new Uint8Array(buf), ext: (file.name.split(".").pop() ?? "mp3").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp3" }),
-              );
-            }}
-          />
-
-          <fieldset className="grid gap-3 sm:grid-cols-2" disabled={running}>
-            <legend className="sr-only">Export mode</legend>
-            <ModeOption
-              checked={mode === "stitch"}
-              onChange={() => setMode("stitch")}
-              title="Stitch into one video"
-              body="Join every segment, in order, into a single MP4."
-            />
-            <ModeOption
-              checked={mode === "parts"}
-              onChange={() => setMode("parts")}
-              title="Save each segment as its own file"
-              body="One MP4 per segment. Great after splitting into parts."
-            />
-          </fieldset>
-
-          {fastCutAvailable && (
-            <label className="flex items-start gap-3 text-sm text-muted">
-              <input
-                type="checkbox"
-                checked={fastCut}
-                disabled={running}
-                onChange={(e) => setFastCut(e.target.checked)}
-                className="mt-1 accent-brand"
-              />
-              <span>
-                <span className="text-fg">Fast cut</span> (no re-encode, no quality loss). Cuts snap to the nearest
-                keyframe, so they can be off by up to a couple of seconds.
+        <input
+          ref={fileInput}
+          id="video-input"
+          type="file"
+          accept="video/*"
+          multiple
+          className="sr-only"
+          data-testid="file-input"
+          onChange={(e) => {
+            void addFiles([...(e.currentTarget.files ?? [])]);
+            e.currentTarget.value = "";
+          }}
+        />
+        <div id="tool-start" className="scroll-mt-32">
+          {segments.length === 0 && !restore ? (
+            <StartPanel onPick={pickGoal} onDrop={(files) => void addFiles(files)} />
+          ) : (
+            <label
+              htmlFor="video-input"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                void addFiles([...e.dataTransfer.files]);
+              }}
+              className={`group flex cursor-pointer flex-col items-center gap-3 rounded-2xl border border-dashed p-5 text-center transition-colors sm:flex-row sm:justify-center sm:text-left ${
+                dragging ? "border-brand bg-brand/10" : "border-line-strong bg-surface/60 hover:border-brand/60 hover:bg-surface"
+              }`}
+            >
+              <span className="grid size-11 place-items-center rounded-xl bg-brand/12 text-brand transition-transform group-hover:scale-105">
+                <UploadIcon size={20} />
+              </span>
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium">Add more videos</span>
+                <span className="text-sm text-muted">MP4, MOV or WebM. Files stay on your device; nothing is uploaded.</span>
               </span>
             </label>
           )}
+        </div>
 
-          {downscaled && (
-            <p className="text-sm text-muted">
-              {limits.label} exports are capped at {limits.maxShortSide}p.{" "}
-              <HardLink href="/pricing" className="text-brand hover:underline">
-                Go Pro for full resolution
-              </HardLink>
-            </p>
-          )}
-
-          {overClipLimit && (
-            <p className="notice notice-warn" data-testid="clip-limit">
-              The {limits.label} plan stitches up to {limits.maxStitchClips} different videos (you&apos;re using{" "}
-              {videosInUse}). Remove some, or{" "}
-              <HardLink href="/pricing" className="font-medium underline">
-                upgrade to Pro
-              </HardLink>{" "}
-              for unlimited stitching.
-            </p>
-          )}
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={() => void startExport()} disabled={exportDisabled} className="btn btn-primary btn-lg">
-              {engineStatus === "loading" && !running ? "Loading engine…" : running ? "Exporting…" : "Export"}
+        {pending.length > 0 && (
+          <p className="notice notice-info animate-pulse" role="status">
+            Reading {pending.join(", ")}…{goal && goal !== "stitch" ? ` Then ${GOAL_NEXT[goal]}.` : ""}
+          </p>
+        )}
+        {errors.length > 0 && (
+          <div className="notice notice-danger flex items-start justify-between gap-3" role="alert">
+            <div>
+              {errors.map((e, i) => (
+                <p key={i}>{e}</p>
+              ))}
+            </div>
+            <button type="button" className="shrink-0 underline" onClick={() => setErrors([])}>
+              Dismiss
             </button>
-            {running && (
-              <>
-                <div className="h-2 min-w-32 flex-1 overflow-hidden rounded-full bg-surface-3">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2 transition-[width] duration-300"
-                    style={{ width: `${Math.round(exportState.progress * 100)}%` }}
-                  />
-                </div>
-                <progress className="sr-only" value={exportState.progress} max={1} />
-                <span className="w-12 text-right font-mono text-sm">{Math.round(exportState.progress * 100)}%</span>
-                <button type="button" onClick={cancelExport} className="btn btn-ghost">
-                  Cancel
-                </button>
-              </>
-            )}
           </div>
+        )}
+        {totalBytes > LARGE_INPUT_BYTES && (
+          <p className="notice notice-warn">
+            You&apos;ve added {formatBytes(totalBytes)} of video. Large exports can crash the tab, especially on phones. If
+            that happens, export in smaller batches.
+          </p>
+        )}
 
-          {exportState.status === "idle" && exportState.message && (
-            <p className="text-sm text-muted">{exportState.message}</p>
-          )}
-          {exportState.status === "error" && (
-            <p className="notice notice-danger" role="alert">
-              {exportState.message}
-            </p>
-          )}
-          {exportState.status === "done" && <Outputs outputs={exportState.outputs} />}
-        </section>
-      )}
+        {segments.length > 0 && (
+          <AutoEditPanel
+            disabled={engineStatus !== "ready" || running}
+            message={assistant}
+            canUndo={history.length > 0}
+            suggestions={suggestions}
+            analysing={analysing}
+            onSuggestion={(sg) => void applySuggestion(sg)}
+            onHighlights={(seconds) => void runActions([{ type: "highlights", seconds }])}
+            onRemoveSilence={() => void runActions([{ type: "remove_silence" }])}
+            onCommand={(text) => void runCommand(text)}
+            onUndo={undo}
+            onExport={() => {
+              void startExport();
+              document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
+            }}
+            onCancel={() => {
+              engine.cancel();
+              void engine.load().catch(() => setEngineStatus("error"));
+            }}
+          />
+        )}
 
-      <details className="text-sm">
-        <summary className="cursor-pointer text-subtle hover:text-muted">FFmpeg log</summary>
-        <pre
-          className="mt-2 max-h-64 overflow-auto rounded-xl border border-line bg-surface p-3 font-mono text-xs text-muted"
-          data-testid="ffmpeg-log"
-        >
-          {logs.join("\n") || "No output yet."}
-        </pre>
-      </details>
+        {segments.length > 0 && (
+          <ViralPanel
+            clips={viral?.clips ?? null}
+            basis={viral?.basis ?? null}
+            busy={Boolean(task) || running || engineStatus !== "ready"}
+            exportable={limits.viralClipExports}
+            canImprove={plan !== "free"}
+            improved={viral?.improved ?? false}
+            clipName={(id) => clips[id]?.file.name ?? "video"}
+            clipUrl={(id) => clips[id]?.url}
+            speech={settings.speech}
+            onSpeech={(speech) => setSettings((s) => ({ ...s, speech }))}
+            onFind={(range, kind) => void findViral(range, kind)}
+            onImprove={() => void improveViral()}
+            onUse={useViralClip}
+            onExport={exportViralClips}
+          />
+        )}
+
+        {segments.length > 0 && (
+          <div id="tool-timeline" className="flex scroll-mt-32 flex-col gap-6">
+            <Timeline
+              segments={segments}
+              colors={colors}
+              selectedId={selectedId}
+              total={totalDuration}
+              onSelect={(id) => dispatch({ type: "select", id })}
+            />
+            <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
+              <div>
+                {selected && (
+                  <Player
+                    key={selected.clipId}
+                    clip={clips[selected.clipId]}
+                    segment={selected}
+                    onSetStart={(start) => dispatch({ type: "setRange", id: selected.id, start })}
+                    onSetEnd={(end) => dispatch({ type: "setRange", id: selected.id, end })}
+                    onSplit={(at) => dispatch({ type: "split", id: selected.id, at })}
+                    onSplitEvery={(seconds) => dispatch({ type: "splitEvery", id: selected.id, seconds })}
+                  />
+                )}
+              </div>
+              <div className="flex flex-col gap-3">
+                <h2 className="flex items-center justify-between text-sm font-medium text-muted">
+                  Segments
+                  <span className="font-mono text-xs text-subtle">
+                    {segments.length} · {formatTime(totalDuration)}
+                  </span>
+                </h2>
+                <SegmentList
+                  segments={segments}
+                  clips={clips}
+                  colors={colors}
+                  selectedId={selectedId}
+                  onSelect={(id) => dispatch({ type: "select", id })}
+                  onMove={(id, delta) => dispatch({ type: "move", id, delta })}
+                  onRemove={removeSegment}
+                  onSetRange={(id, range) => dispatch({ type: "setRange", id, ...range })}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {segments.length > 0 && (
+          <section id="export" className="card flex scroll-mt-24 flex-col gap-5 p-5 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">Export</h2>
+              <span className="badge">
+                {methods.size === 1 && methods.has("copy")
+                  ? "Fast join · no re-encode"
+                  : methods.has("copy")
+                    ? "Mix of fast copy and re-encode"
+                    : "Re-encode · frame-accurate"}
+              </span>
+            </div>
+
+            <ExportSettingsPanel
+              settings={settings}
+              onChange={setSettings}
+              limits={limits}
+              disabled={running}
+              logoUrl={logo?.url ?? null}
+              onLogo={(f) => void changeLogo(f)}
+              ownTrack={ownTrack}
+              onOwnTrack={(file) => {
+                if (!file) return setOwnTrack(null);
+                void file.arrayBuffer().then((buf) =>
+                  setOwnTrack({ name: file.name, bytes: new Uint8Array(buf), ext: (file.name.split(".").pop() ?? "mp3").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp3" }),
+                );
+              }}
+            />
+
+            <fieldset className="grid gap-3 sm:grid-cols-2" disabled={running}>
+              <legend className="sr-only">Export mode</legend>
+              <ModeOption
+                checked={mode === "stitch"}
+                onChange={() => setMode("stitch")}
+                title="Stitch into one video"
+                body="Join every segment, in order, into a single MP4."
+              />
+              <ModeOption
+                checked={mode === "parts"}
+                onChange={() => setMode("parts")}
+                title="Save each segment as its own file"
+                body="One MP4 per segment. Great after splitting into parts."
+              />
+            </fieldset>
+
+            {fastCutAvailable && (
+              <label className="flex items-start gap-3 text-sm text-muted">
+                <input
+                  type="checkbox"
+                  checked={fastCut}
+                  disabled={running}
+                  onChange={(e) => setFastCut(e.target.checked)}
+                  className="mt-1 accent-brand"
+                />
+                <span>
+                  <span className="text-fg">Fast cut</span> (no re-encode, no quality loss). Cuts snap to the nearest
+                  keyframe, so they can be off by up to a couple of seconds.
+                </span>
+              </label>
+            )}
+
+            {downscaled && (
+              <p className="text-sm text-muted">
+                {limits.label} exports are capped at {limits.maxShortSide}p.{" "}
+                <HardLink href="/pricing" className="text-brand hover:underline">
+                  Go Pro for full resolution
+                </HardLink>
+              </p>
+            )}
+
+            {overClipLimit && (
+              <p className="notice notice-warn" data-testid="clip-limit">
+                The {limits.label} plan stitches up to {limits.maxStitchClips} different videos (you&apos;re using{" "}
+                {videosInUse}). Remove some, or{" "}
+                <HardLink href="/pricing" className="font-medium underline">
+                  upgrade to Pro
+                </HardLink>{" "}
+                for unlimited stitching.
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={() => void startExport()} disabled={exportDisabled} className="btn btn-primary btn-lg">
+                {engineStatus === "loading" && !running ? "Loading engine…" : running ? "Exporting…" : "Export"}
+              </button>
+              {running && (
+                <>
+                  <div className="h-2 min-w-32 flex-1 overflow-hidden rounded-full bg-surface-3">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2 transition-[width] duration-300"
+                      style={{ width: `${Math.round(exportState.progress * 100)}%` }}
+                    />
+                  </div>
+                  <progress className="sr-only" value={exportState.progress} max={1} />
+                  <span className="w-12 text-right font-mono text-sm">{Math.round(exportState.progress * 100)}%</span>
+                  <button type="button" onClick={cancelExport} className="btn btn-ghost">
+                    Cancel
+                  </button>
+                </>
+              )}
+            </div>
+
+            {exportState.status === "idle" && exportState.message && (
+              <p className="text-sm text-muted">{exportState.message}</p>
+            )}
+            {exportState.status === "error" && (
+              <p className="notice notice-danger" role="alert">
+                {exportState.message}
+              </p>
+            )}
+            {exportState.status === "done" && <Outputs outputs={exportState.outputs} />}
+          </section>
+        )}
+
+        <details className="text-sm">
+          <summary className="cursor-pointer text-subtle hover:text-muted">FFmpeg log</summary>
+          <pre
+            className="mt-2 max-h-64 overflow-auto rounded-xl border border-line bg-surface p-3 font-mono text-xs text-muted"
+            data-testid="ffmpeg-log"
+          >
+            {logs.join("\n") || "No output yet."}
+          </pre>
+        </details>
+      </div>
     </div>
   );
 }

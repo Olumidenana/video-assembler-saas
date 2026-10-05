@@ -47,7 +47,7 @@ export function AutoEditPanel(props: AutoEditPanelProps) {
   const locked = disabled || working;
 
   return (
-    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand/60 via-brand-2/30 to-transparent p-px" data-testid="auto-edit">
+    <section id="tool-edit" className="relative scroll-mt-32 overflow-hidden rounded-2xl bg-gradient-to-br from-brand/60 via-brand-2/30 to-transparent p-px" data-testid="auto-edit">
       <div className="relative flex flex-col gap-5 rounded-2xl bg-surface p-5 sm:p-6">
         <div className="pointer-events-none absolute -top-24 right-0 size-64 rounded-full bg-brand/20 blur-3xl animate-drift" />
 

@@ -53,7 +53,7 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
 
   return (
     <fieldset className="flex flex-col gap-5" disabled={disabled} data-testid="export-settings">
-      <div className="flex flex-col gap-2">
+      <div id="tool-brand" className="flex scroll-mt-32 flex-col gap-2">
         <legend className="text-sm font-medium">Format</legend>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {ASPECTS.map((a) => (
@@ -75,7 +75,7 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div id="tool-captions" className="flex scroll-mt-32 flex-col gap-2">
         <label className="flex items-center gap-3 text-sm font-medium">
           <input type="checkbox" checked={settings.captions} onChange={(e) => set({ captions: e.target.checked })} className="accent-brand" />
           Auto-captions
@@ -111,7 +111,9 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         )}
       </div>
 
-      <MusicControls music={settings.music} onChange={(music) => set({ music })} ownTrack={ownTrack} onOwnTrack={onOwnTrack} />
+      <div id="tool-music" className="scroll-mt-32">
+        <MusicControls music={settings.music} onChange={(music) => set({ music })} ownTrack={ownTrack} onOwnTrack={onOwnTrack} />
+      </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         {limits.brandLogo ? (
