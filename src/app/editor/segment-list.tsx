@@ -3,6 +3,7 @@
 import { ArrowDownIcon, ArrowUpIcon, XIcon } from "@/components/icons";
 import type { Clip, Segment } from "@/lib/video/types";
 import { formatTime } from "./format";
+import { useThumbnail } from "./thumbnails";
 
 interface SegmentListProps {
   segments: Segment[];
@@ -41,6 +42,7 @@ export function SegmentList({
           >
             <span className="absolute inset-y-0 left-0 w-1" style={{ background: colors[segment.clipId] }} />
             <div className="flex items-center justify-between gap-2">
+              <SegmentThumb url={clip.url} time={segment.start + 0.1} onClick={() => onSelect(segment.id)} />
               <button
                 type="button"
                 className="min-w-0 flex-1 truncate text-left font-medium"
@@ -77,6 +79,18 @@ export function SegmentList({
         );
       })}
     </ol>
+  );
+}
+
+function SegmentThumb({ url, time, onClick }: { url: string; time: number; onClick: () => void }) {
+  const src = useThumbnail(url, time, 160);
+  return (
+    <button type="button" onClick={onClick} className="aspect-video w-16 shrink-0 overflow-hidden rounded-md bg-surface-3" tabIndex={-1} aria-hidden>
+      {src && (
+        // eslint-disable-next-line @next/next/no-img-element -- a frame from the user's own local video
+        <img src={src} alt="" className="size-full object-cover" />
+      )}
+    </button>
   );
 }
 

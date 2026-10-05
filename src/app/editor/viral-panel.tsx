@@ -4,6 +4,7 @@ import { useState } from "react";
 import { HardLink } from "@/components/hard-link";
 import { LockIcon, SparkIcon } from "@/components/icons";
 import type { ViralClip, ViralScores } from "@/lib/assistant/viral";
+import { ClipPreview } from "./clip-preview";
 import { formatTime } from "./format";
 
 export type ViralRange = { min: number; max: number; label: string };
@@ -49,6 +50,8 @@ interface Props {
   canImprove: boolean;
   improved: boolean;
   clipName: (clipId: string) => string;
+  /** The source video's blob URL, for live previews. */
+  clipUrl: (clipId: string) => string | undefined;
   onFind: (range: ViralRange, kind: VideoKind) => void;
   onImprove: () => void;
   onUse: (clip: ViralClip) => void;
@@ -134,7 +137,7 @@ export function ViralPanel(props: Props) {
           </p>
           <ol className="relative grid gap-3 md:grid-cols-2" data-testid="viral-clips">
             {clips.map((clip, i) => (
-              <ClipCard key={clip.id} clip={clip} signals={SIGNALS[props.basis ?? "transcript"]} rank={i + 1} locked={i >= exportable} busy={busy} name={props.clipName(clip.clipId)} onUse={props.onUse} onExport={(c) => props.onExport([c])} />
+              <ClipCard key={clip.id} clip={clip} signals={SIGNALS[props.basis ?? "transcript"]} rank={i + 1} locked={i >= exportable} busy={busy} name={props.clipName(clip.clipId)} url={props.clipUrl(clip.clipId)} onUse={props.onUse} onExport={(c) => props.onExport([c])} />
             ))}
           </ol>
           {unlocked.length > 1 && (
@@ -168,6 +171,7 @@ function ClipCard({
   locked,
   busy,
   name,
+  url,
   onUse,
   onExport,
 }: {
@@ -177,6 +181,7 @@ function ClipCard({
   locked: boolean;
   busy: boolean;
   name: string;
+  url: string | undefined;
   onUse: (c: ViralClip) => void;
   onExport: (c: ViralClip) => void;
 }) {
@@ -184,6 +189,7 @@ function ClipCard({
   return (
     <li className="relative flex flex-col gap-3 overflow-hidden rounded-xl border border-line bg-surface-2/60 p-4" data-locked={locked || undefined}>
       <div className={`flex flex-col gap-3 ${locked ? "pointer-events-none select-none blur-[3px]" : ""}`} aria-hidden={locked}>
+        {url && <ClipPreview url={url} start={clip.start} end={clip.end} poster={clip.peak ?? clip.start + Math.min(2, (clip.end - clip.start) / 3)} />}
         <div className="flex items-start gap-3">
           <ScoreRing score={clip.score} />
           <div className="min-w-0 flex-1">

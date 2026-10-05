@@ -20,6 +20,7 @@ import { cutsPerMinute } from "@/lib/video/highlights";
 import { findClipsByScene, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
+import { forgetThumbnails } from "./thumbnails";
 import { VIRAL_RANGES, ViralPanel, type VideoKind, type ViralRange } from "./viral-panel";
 import type { ExportItem } from "@/lib/video/types";
 import { DownloadIcon, UploadIcon } from "@/components/icons";
@@ -252,6 +253,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     const clipStillUsed = timeline.segments.some((s) => s.id !== id && s.clipId === segment.clipId);
     dispatch({ type: "removeSegment", id });
     if (!clipStillUsed) {
+      forgetThumbnails(timeline.clips[segment.clipId].url);
       URL.revokeObjectURL(timeline.clips[segment.clipId].url);
       analyses.current.delete(segment.clipId);
       transcripts.current.delete(segment.clipId);
@@ -786,6 +788,7 @@ export function Editor({ plan }: { plan: PlanId }) {
           canImprove={plan !== "free"}
           improved={viral?.improved ?? false}
           clipName={(id) => clips[id]?.file.name ?? "video"}
+          clipUrl={(id) => clips[id]?.url}
           onFind={(range, kind) => void findViral(range, kind)}
           onImprove={() => void improveViral()}
           onUse={useViralClip}

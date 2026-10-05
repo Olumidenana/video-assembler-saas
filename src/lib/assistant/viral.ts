@@ -21,6 +21,8 @@ export interface ViralClip {
   clipId: string;
   start: number;
   end: number;
+  /** The strongest moment, for the preview still (seconds in the source). */
+  peak?: number;
   /** 0–100 */
   score: number;
   scores: ViralScores;
@@ -273,6 +275,7 @@ export function findClipsByScene(clipId: string, duration: number, analysis: Cli
       clipId,
       start: m.start,
       end: m.end,
+      peak: m.peak,
       score: overallScore(scores),
       scores,
       hook: `Peaks ${mmss(m.peak - m.start)} in`,
