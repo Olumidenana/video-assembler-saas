@@ -21,6 +21,7 @@ import { composeWav } from "@/lib/audio/music";
 import { findClipsByScene, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
+import { TaskBanner } from "./task-banner";
 import { forgetThumbnails } from "./thumbnails";
 import { DEFAULT_MUSIC, type OwnTrack } from "./music-controls";
 import { VIRAL_RANGES, ViralPanel, type VideoKind, type ViralRange } from "./viral-panel";
@@ -37,7 +38,12 @@ const LARGE_INPUT_BYTES = 1.5 * 1024 ** 3;
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|mov|webm|mkv|avi|3gp|ts|mts)$/i;
 const MAX_LOG_LINES = 200;
 /** Longer videos are analysed on demand instead, so a queued export isn't held up. */
-const BACKGROUND_ANALYSIS_MAX_SECONDS = 600;
+/**
+ * Videos up to this long get the full analysis (motion and cuts) in the
+ * background as soon as they're added, so it's usually done before it's
+ * needed; longer ones get the quick sound-only one, and the rest on demand.
+ */
+const BACKGROUND_ANALYSIS_MAX_SECONDS = 1800;
 
 type EngineStatus = "loading" | "ready" | "error";
 type ExportMode = "stitch" | "parts";
@@ -61,7 +67,9 @@ export function Editor({ plan }: { plan: PlanId }) {
   const [dragging, setDragging] = useState(false);
   const outputUrls = useRef<string[]>([]);
   const analyses = useRef(new Map<string, ClipAnalysis>());
-  const inflight = useRef(new Map<string, Promise<ClipAnalysis>>());
+  const backgroundQueue = useRef<Promise<unknown>>(Promise.resolve());
+  // Running analyses, with everyone waiting on each so they all see its progress.
+  const inflight = useRef(new Map<string, { run: Promise<ClipAnalysis>; listeners: Set<(r: number) => void> }>());
   // Mirrors `analyses` for rendering (suggestions); the ref is for async logic.
   const [analysisState, setAnalysisState] = useState<Record<string, ClipAnalysis>>({});
   const [assistant, setAssistant] = useState<AssistantMessage | null>(null);
@@ -139,26 +147,61 @@ export function Editor({ plan }: { plan: PlanId }) {
   }, [running]);
 
   function rememberAnalysis(id: string, analysis: ClipAnalysis, save = true) {
+    // A sound-only result never replaces a full one that finished first.
+    if (analysis.level === "audio" && analyses.current.get(id)?.level !== "audio" && analyses.current.has(id)) return;
     analyses.current.set(id, analysis);
     setAnalysisState((prev) => ({ ...prev, [id]: analysis }));
     if (save && persist.current) void projectStore.saveAnalysis(id, analysis).catch(() => {});
   }
 
-  /** Analyses a clip once; concurrent callers share the same run. */
-  function getAnalysis(id: string, info: MediaInfo, onProgress?: (r: number) => void): Promise<ClipAnalysis> {
+  /**
+   * The analysis for a clip, measured once. "audio" (sound only) is many times
+   * faster and enough for talking videos and silence removal; "full" adds
+   * motion and scene cuts, and is reused for audio requests too.
+   */
+  function getAnalysis(
+    id: string,
+    info: MediaInfo,
+    onProgress?: (r: number) => void,
+    level: "audio" | "full" = "full",
+    background = false,
+  ): Promise<ClipAnalysis> {
     const done = analyses.current.get(id);
-    if (done) return Promise.resolve(done);
-    let run = inflight.current.get(id);
-    if (!run) {
-      run = engine.analyze(id, info, onProgress).then((a) => {
+    if (done && (level === "audio" || done.level !== "audio")) return Promise.resolve(done);
+    // Join a run of the same level. A sound-only request doesn't wait for a
+    // full run: its own takes seconds, and the full one runs on helper engines.
+    const running = inflight.current.get(`${id}:${level}`);
+    if (running) {
+      if (onProgress) running.listeners.add(onProgress);
+      return running.run;
+    }
+    const key = `${id}:${level}`;
+    const listeners = new Set<(r: number) => void>(onProgress ? [onProgress] : []);
+    const run = engine
+      .analyze(id, info, (r) => listeners.forEach((l) => l(r)), level, { background })
+      .then((a) => {
         rememberAnalysis(id, a);
         return a;
       });
-      inflight.current.set(id, run);
-      void run.catch(() => {}).finally(() => inflight.current.delete(id));
-    }
+    inflight.current.set(key, { run, listeners });
+    void run.catch(() => {}).finally(() => inflight.current.delete(key));
     return run;
   }
+
+  /**
+   * Starts measuring a new video right away, on helper engines so the editor
+   * stays responsive: the full analysis for videos up to 30 minutes, the
+   * sound-only one for longer videos.
+   */
+  function analyzeInBackground(id: string, info: MediaInfo) {
+    const level = info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS ? "full" : "audio";
+    // One video at a time, so adding many at once doesn't start many engines.
+    backgroundQueue.current = backgroundQueue.current
+      // A removed video fails fast in the engine ("Clip was removed"), which is fine here.
+      .then(() => (analyses.current.get(id)?.level === "full" ? undefined : getAnalysis(id, info, undefined, level, true)))
+      .catch(() => {});
+  }
+
 
   function rememberClip(id: string, file: File, info: MediaInfo) {
     if (!projectStore.available()) return setMemory("unavailable");
@@ -193,7 +236,7 @@ export function Editor({ plan }: { plan: PlanId }) {
         if (stored.transcript) {
           transcripts.current.set(stored.id, stored.transcript);
           transcriptKeys.current.set(stored.id, stored.transcriptKey ?? speechKey(settings.speech));
-        } else if (info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS) void getAnalysis(stored.id, info).catch(() => {});
+        } else analyzeInBackground(stored.id, info);
       } catch {
         void engine.removeClip(stored.id).catch(() => {});
       }
@@ -240,7 +283,7 @@ export function Editor({ plan }: { plan: PlanId }) {
         dispatch({ type: "addClip", clip: { id, file, info, url: URL.createObjectURL(file) } });
         rememberClip(id, file, info);
         // Analyse in the background so suggestions appear and auto-edit is instant.
-        if (info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS) void getAnalysis(id, info).catch(() => {});
+        analyzeInBackground(id, info);
       } catch (err) {
         void engine.removeClip(id).catch(() => {});
         if (!(err instanceof CancelledError)) {
@@ -279,9 +322,12 @@ export function Editor({ plan }: { plan: PlanId }) {
     }
   }
 
-  /** Analyses every clip not seen before (loudness + motion), with combined progress. */
-  async function analyzeClips(clipIds: string[]) {
-    const todo = clipIds.filter((id) => !analyses.current.has(id));
+  /** Analyses every clip not yet measured at `level`, with combined progress. */
+  async function analyzeClips(clipIds: string[], level: "audio" | "full" = "full") {
+    const todo = clipIds.filter((id) => {
+      const a = analyses.current.get(id);
+      return !a || (level === "full" && a.level === "audio");
+    });
     const total = todo.reduce((sum, id) => sum + timeline.clips[id].info.duration, 0);
     let done = 0;
     for (const id of todo) {
@@ -289,7 +335,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       const report = (r: number) =>
         setAssistant({ kind: "working", text: "Watching your videos for the best parts…", progress: total ? (done + r * info.duration) / total : null });
       report(0);
-      await getAnalysis(id, info, report);
+      await getAnalysis(id, info, report, level);
       done += info.duration;
     }
   }
@@ -302,7 +348,9 @@ export function Editor({ plan }: { plan: PlanId }) {
     }
     const before = timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }));
     try {
-      if (needsAnalysis(actions)) await analyzeClips(Object.keys(timeline.clips));
+      // Silence removal only needs the sound, which is much faster to measure.
+      const level = actions.some((a) => a.type === "highlights") ? "full" : "audio";
+      if (needsAnalysis(actions)) await analyzeClips(Object.keys(timeline.clips), level);
       const edits = actions.filter((a) => a.type !== "export");
       const next = edits.length ? applyActions(timeline, edits, analyses.current) : before;
       if (edits.length) {
@@ -414,7 +462,11 @@ export function Editor({ plan }: { plan: PlanId }) {
     setViral(null);
     try {
       setTask({ label: "Watching your videos…", progress: null });
-      for (const id of ids) await getAnalysis(id, timeline.clips[id].info, (r) => setTask({ label: "Watching your videos…", progress: r }));
+      // Talking videos are judged on the words and sound: no need to decode the picture.
+      const level = kind === "talking" ? "audio" : "full";
+      for (const id of ids) {
+        await getAnalysis(id, timeline.clips[id].info, (r) => setTask({ label: level === "audio" ? "Listening to your videos…" : "Watching your videos…", progress: r }), level);
+      }
       // Heavily edited footage (anime, films, gaming) is judged on its scenes;
       // talking videos (few cuts) on what's said, which needs a transcript.
       const byScenes = (id: string) => {
@@ -668,7 +720,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     analyses: analysisState,
   });
   const analysing = segments.some(
-    (s) => !analysisState[s.clipId] && clips[s.clipId].info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS,
+    (s) => !analysisState[s.clipId],
   );
 
   return (
@@ -687,25 +739,7 @@ export function Editor({ plan }: { plan: PlanId }) {
         )}
       </div>
 
-      {task && (
-        <div className="sticky top-20 z-30 flex flex-col gap-2 rounded-xl border border-brand/40 bg-surface/95 p-4 shadow-xl shadow-brand/10 backdrop-blur" role="status" data-testid="task">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="flex items-center gap-2">
-              <span className="size-2 animate-pulse rounded-full bg-brand" /> {task.label}
-            </span>
-            <button type="button" className="text-xs text-muted hover:text-fg" onClick={cancelTask}>
-              Cancel
-            </button>
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
-            {task.progress === null ? (
-              <div className="h-full w-1/3 animate-indeterminate rounded-full bg-gradient-to-r from-brand to-brand-2" />
-            ) : (
-              <div className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2 transition-[width] duration-300" style={{ width: `${Math.round(task.progress * 100)}%` }} />
-            )}
-          </div>
-        </div>
-      )}
+      {task && <TaskBanner key={task.label} label={task.label} progress={task.progress} onCancel={cancelTask} />}
 
       {restore && (
         <div className="card flex flex-wrap items-center justify-between gap-4 border-brand/40 p-5" data-testid="restore">

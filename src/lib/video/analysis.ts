@@ -14,6 +14,8 @@ export interface ClipAnalysis {
   /** Largest scene-change score per bin, 0..1; high values mark hard cuts. */
   cuts: number[];
   hasAudio: boolean;
+  /** "audio": sound only (fast; motion and cuts are zero). Missing means full. */
+  level?: "audio" | "full";
 }
 
 export const ANALYSIS_FILES = { video: "/analysis-video.txt", audio: "/analysis-audio.txt" };
@@ -25,10 +27,17 @@ export const ANALYSIS_FILES = { video: "/analysis-video.txt", audio: "/analysis-
  * - audio: mono 16 kHz, RMS level for each 0.5 s window.
  * Output goes to the null muxer, so nothing is encoded.
  */
-export function buildAnalysisArgs(clipId: string, info: MediaInfo): string[] {
+export function buildAnalysisArgs(
+  clipId: string,
+  info: MediaInfo,
+  range?: { start: number; duration: number },
+  level: "audio" | "full" = "full",
+): string[] {
   const hasAudio = info.audioCodec !== null;
+  // Sound-only analysis skips decoding the picture entirely: many times faster.
+  const video = level === "full" || !hasAudio;
   const graph = [
-    `[0:v:0]fps=4,scale=96:-2,select='gte(scene,0)',signalstats,metadata=print:file=${ANALYSIS_FILES.video}[v]`,
+    ...(video ? [`[0:v:0]fps=4,scale=96:-2,select='gte(scene,0)',signalstats,metadata=print:file=${ANALYSIS_FILES.video}[v]`] : []),
     ...(hasAudio
       ? [
           `[0:a:0]aresample=16000,aformat=channel_layouts=mono,asetnsamples=n=8000:p=0,` +
@@ -38,11 +47,18 @@ export function buildAnalysisArgs(clipId: string, info: MediaInfo): string[] {
   ].join(";");
 
   return [
+    // Decoding is nearly all the cost. Motion and cut detection don't need a
+    // pretty picture: skip the deblocking filter and frames nothing else
+    // depends on.
     "-threads", "2",
+    "-skip_loop_filter", "all",
+    "-skip_frame", "noref",
+    // A chunk of a long video, when several workers analyse it in parallel.
+    ...(range ? ["-ss", range.start.toFixed(3), "-t", range.duration.toFixed(3)] : []),
     "-i", clipPath(clipId),
     "-filter_complex_threads", "2",
     "-filter_complex", graph,
-    "-map", "[v]",
+    ...(video ? ["-map", "[v]"] : []),
     ...(hasAudio ? ["-map", "[a]"] : []),
     "-f", "null", "-",
   ];
@@ -92,6 +108,7 @@ export function toBins(
 
 export function parseAnalysis(files: Record<string, string>, info: MediaInfo): ClipAnalysis {
   const video = files[ANALYSIS_FILES.video] ?? "";
+  const hasVideo = video.trim().length > 0;
   const clean = (v: number) => (Number.isFinite(v) ? Math.max(0, v) : 0);
   const motion = toBins(parseMetadataPrint(video, "lavfi.signalstats.YDIF"), info.duration, 0, clean);
   const cuts = maxBins(parseMetadataPrint(video, "lavfi.scene_score"), info.duration);
@@ -104,7 +121,7 @@ export function parseAnalysis(files: Record<string, string>, info: MediaInfo): C
         (v) => (Number.isFinite(v) ? Math.max(SILENCE_DB, v) : SILENCE_DB),
       )
     : new Array<number>(motion.length).fill(SILENCE_DB);
-  return { loudness, motion, cuts, hasAudio };
+  return { loudness, motion, cuts, hasAudio, level: hasVideo ? "full" : "audio" };
 }
 
 function maxBins(points: { time: number; value: number }[], duration: number): number[] {
@@ -114,4 +131,29 @@ function maxBins(points: { time: number; value: number }[], duration: number): n
     if (Number.isFinite(value)) bins[i] = Math.max(bins[i], Math.min(1, value));
   }
   return bins;
+}
+
+/**
+ * Splits a long video into chunks for parallel analysis. Chunk lengths are
+ * whole seconds (so bins line up exactly when merged); the last one takes
+ * the remainder.
+ */
+export function analysisChunks(duration: number, parts: number): { start: number; duration: number }[] {
+  if (parts <= 1) return [{ start: 0, duration }];
+  const size = Math.ceil(duration / parts);
+  const chunks: { start: number; duration: number }[] = [];
+  for (let start = 0; start < duration; start += size) chunks.push({ start, duration: Math.min(size, duration - start) });
+  return chunks;
+}
+
+/** Joins chunk analyses back into one, in order. */
+export function mergeAnalyses(parts: ClipAnalysis[], chunks: { duration: number }[]): ClipAnalysis {
+  const take = <T,>(arr: T[], i: number) => arr.slice(0, Math.max(1, Math.ceil(chunks[i].duration / BIN_SECONDS)));
+  return {
+    loudness: parts.flatMap((p, i) => take(p.loudness, i)),
+    motion: parts.flatMap((p, i) => take(p.motion, i)),
+    cuts: parts.flatMap((p, i) => take(p.cuts, i)),
+    hasAudio: parts.some((p) => p.hasAudio),
+    level: parts.every((p) => p.level !== "audio") ? "full" : "audio",
+  };
 }

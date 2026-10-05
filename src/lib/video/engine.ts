@@ -1,5 +1,5 @@
 import type { FFmpeg } from "@ffmpeg/ffmpeg";
-import { ANALYSIS_FILES, buildAnalysisArgs, parseAnalysis, type ClipAnalysis } from "./analysis";
+import { ANALYSIS_FILES, analysisChunks, buildAnalysisArgs, mergeAnalyses, parseAnalysis, type ClipAnalysis } from "./analysis";
 import { clipDir, clipPath, parseLogTime } from "./commands";
 import { parseProbe } from "./probe";
 import type { MediaInfo } from "./types";
@@ -35,6 +35,20 @@ export class EngineCrashedError extends Error {
 const LOG_TAIL = 30;
 /** FFmpeg logs progress about twice a second; this much silence means the worker is stuck. */
 const STALL_MS = 60_000;
+/** Videos longer than this are analysed in parallel chunks when the device can afford it. */
+const PARALLEL_MIN_SECONDS = 120;
+
+/**
+ * How many FFmpeg instances to analyse with at once. Each uses ~2 cores and a
+ * few hundred MB, so phones and small laptops stay at one.
+ */
+export function analysisWorkers(cores = globalThis.navigator?.hardwareConcurrency ?? 2, memoryGb = (globalThis.navigator as { deviceMemory?: number } | undefined)?.deviceMemory ?? 4): number {
+  if (memoryGb < 4) return 1;
+  if (cores >= 12 && memoryGb >= 8) return 4;
+  if (cores >= 8) return 3;
+  if (cores >= 4) return 2;
+  return 1;
+}
 
 /**
  * Owns the single FFmpeg.wasm worker for the page.
@@ -56,6 +70,8 @@ export class VideoEngine {
   private logListeners = new Set<(line: string) => void>();
   private timeListeners = new Set<(seconds: number) => void>();
   private generation = 0;
+  /** Extra engines running parallel analysis; cancelled with this one. */
+  private helpers: VideoEngine[] = [];
 
   constructor() {
     this.mode = globalThis.crossOriginIsolated ? "multi-threaded" : "single-threaded";
@@ -214,12 +230,87 @@ export class VideoEngine {
   }
 
   /** Measures loudness and motion across a clip (for auto-edit). */
-  async analyze(clipId: string, info: MediaInfo, onProgress?: (ratio: number) => void): Promise<ClipAnalysis> {
-    const files = await this.runForText(clipId ? [clipId] : [], buildAnalysisArgs(clipId, info), Object.values(ANALYSIS_FILES), {
-      totalDuration: info.duration,
+  /**
+   * Measures loudness (and, at "full", motion and cuts) across a clip.
+   * `background` runs it entirely on helper engines, so this engine's queue
+   * stays free for exports and transcription while it works.
+   */
+  async analyze(
+    clipId: string,
+    info: MediaInfo,
+    onProgress?: (ratio: number) => void,
+    level: "audio" | "full" = "full",
+    { background = false }: { background?: boolean } = {},
+  ): Promise<ClipAnalysis> {
+    const audioOnly = level === "audio" && info.audioCodec !== null;
+    const workers = audioOnly || this.mode !== "multi-threaded" || info.duration <= PARALLEL_MIN_SECONDS ? 1 : analysisWorkers();
+    if (workers > 1 || background) {
+      try {
+        return await this.analyzeOnHelpers(clipId, info, Math.max(1, workers), onProgress, audioOnly ? "audio" : "full", background);
+      } catch (err) {
+        if (err instanceof CancelledError) throw err;
+        // Out of memory or a helper crashed: this engine alone is slower but reliable.
+      }
+    }
+    return this.analyzeRange(clipId, info, undefined, onProgress, audioOnly ? "audio" : "full");
+  }
+
+  private async analyzeRange(
+    clipId: string,
+    info: MediaInfo,
+    range: { start: number; duration: number } | undefined,
+    onProgress?: (ratio: number) => void,
+    level: "audio" | "full" = "full",
+  ): Promise<ClipAnalysis> {
+    const duration = range?.duration ?? info.duration;
+    const files = await this.runForText(clipId ? [clipId] : [], buildAnalysisArgs(clipId, info, range, level), Object.values(ANALYSIS_FILES), {
+      totalDuration: duration,
       onProgress,
     });
-    return parseAnalysis(files, info);
+    return parseAnalysis(files, { ...info, duration });
+  }
+
+  /**
+   * Splits the video into chunks analysed at the same time by short-lived
+   * helper engines (each its own worker, so they really run in parallel), plus
+   * this one unless running in the background. Helpers are shut down
+   * afterwards to free memory.
+   */
+  private async analyzeOnHelpers(
+    clipId: string,
+    info: MediaInfo,
+    workers: number,
+    onProgress: ((ratio: number) => void) | undefined,
+    level: "audio" | "full",
+    background: boolean,
+  ): Promise<ClipAnalysis> {
+    const file = this.files.get(clipId);
+    if (!file) throw new Error("Clip was removed.");
+    const chunks = analysisChunks(info.duration, workers);
+    // In the foreground this engine takes the first chunk; in the background it takes none.
+    const helpers = chunks.slice(background ? 0 : 1).map(() => {
+      const helper = new VideoEngine();
+      helper.files.set(clipId, file);
+      return helper;
+    });
+    this.helpers.push(...helpers);
+    const progress = chunks.map(() => 0);
+    const report = (i: number) => (r: number) => {
+      progress[i] = r;
+      onProgress?.(progress.reduce((s, p, k) => s + p * chunks[k].duration, 0) / info.duration);
+    };
+    try {
+      const parts = await Promise.all(
+        chunks.map((chunk, i) => {
+          const engine = background ? helpers[i] : i === 0 ? this : helpers[i - 1];
+          return engine.analyzeRange(clipId, info, chunks.length > 1 ? chunk : undefined, report(i), level);
+        }),
+      );
+      return mergeAnalyses(parts, chunks);
+    } finally {
+      for (const helper of helpers) helper.cancel();
+      this.helpers = this.helpers.filter((h) => !helpers.includes(h));
+    }
   }
 
   /** Decodes part of a clip's audio as 16 kHz mono float samples (speech recognition input). */
@@ -245,6 +336,8 @@ export class VideoEngine {
     this.generation++;
     this.queue = Promise.resolve();
     this.discardInstance();
+    for (const helper of this.helpers) helper.cancel();
+    this.helpers = [];
   }
 
   /** Kills the worker; the next operation starts a fresh one and re-mounts files. */

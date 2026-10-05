@@ -232,3 +232,35 @@ describe("timelineReducer", () => {
     expect(s.segments.map((x) => x.clipId)).toEqual(["b", "a"]);
   });
 });
+
+describe("parallel analysis", () => {
+  it("splits long videos into whole-second chunks and merges them back in order", async () => {
+    const { analysisChunks, mergeAnalyses } = await import("./analysis");
+    const chunks = analysisChunks(601.5, 2);
+    expect(chunks).toEqual([
+      { start: 0, duration: 301 },
+      { start: 301, duration: 300.5 },
+    ]);
+    const part = (n: number, v: number) => ({ loudness: Array(n).fill(v), motion: Array(n).fill(v), cuts: Array(n).fill(0), hasAudio: true });
+    // A chunk can come back with an extra trailing bin; it's dropped.
+    const merged = mergeAnalyses([part(603, 1), part(601, 2)], chunks);
+    expect(merged.motion).toHaveLength(1203);
+    expect(merged.motion[601]).toBe(1);
+    expect(merged.motion[602]).toBe(2);
+  });
+
+  it("uses more workers only on devices with the cores and memory for them", async () => {
+    const { analysisWorkers } = await import("./engine");
+    expect(analysisWorkers(4, 2)).toBe(1);
+    expect(analysisWorkers(2, 8)).toBe(1);
+    expect(analysisWorkers(4, 8)).toBe(2);
+    expect(analysisWorkers(8, 8)).toBe(3);
+    expect(analysisWorkers(16, 16)).toBe(4);
+  });
+
+  it("analyses a chunk with input seeking and decodes cheaply", async () => {
+    const { buildAnalysisArgs } = await import("./analysis");
+    const args = buildAnalysisArgs("a", info(), { start: 300, duration: 300 });
+    expect(args.slice(0, 12)).toEqual(["-threads", "2", "-skip_loop_filter", "all", "-skip_frame", "noref", "-ss", "300.000", "-t", "300.000", "-i", "/in/a/source"]);
+  });
+});
