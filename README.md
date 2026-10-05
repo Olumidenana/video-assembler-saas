@@ -169,6 +169,28 @@ fall back to sound-and-action scoring. Free exports the top clip, Pro the top 3,
 **Export settings** (`src/app/editor/export-settings.tsx`): 9:16, 1:1 or 16:9 with a blurred
 background or crop; Studio users can add their logo; Free exports carry a small watermark.
 
+**Languages**: captions and the Viral Clip Finder's transcript use Whisper, which understands ~99
+languages. Users pick a language (or auto-detect), can translate captions to English (Whisper's
+"translate" task, e.g. English subtitles for Japanese anime), and choose Standard or High accuracy
+(`whisper-base`/`small`; one size smaller on low-powered devices; `.en` models for English only).
+Transcripts are cached per clip together with the settings that made them (`speechKey`).
+
+**Scenes mode** (`findMoments` in `src/lib/video/highlights.ts`): for edited footage (anime, films,
+gaming, skits) clips start and end on shot changes and are scored on hook, build-up, peak
+placement, intensity and cut pace; opening/ending theme songs in long videos are skipped. Highlights
+are built from a few whole moments. Auto picks Scenes for videos with 6+ cuts a minute.
+
+## Music (`src/lib/audio/music.ts`)
+
+Original beats composed in the browser for each export (Phonk, Hype trap, Afro/Amapiano,
+Cinematic, Lo-fi): no samples, nothing to license. `planTrack` aligns the bar grid so the drop
+lands exactly on the output's biggest moment (`outputPeak`): a light groove, a 2-bar filtered
+build with a riser, a short gap, then an impact and the full beat. `renderTrack` synthesises it
+with an OfflineAudioContext; FFmpeg mixes it under the original sound, ducking it on the speech
+band while keeping 45% undocked so loud scenes never bury it. Users can also upload their own
+track (kept in memory only). Trending sounds should be added inside TikTok/Instagram, where they're
+licensed.
+
 ## Landing page showcase videos
 
 The phones on the home page play short stock clips from `public/showcase/` when present:

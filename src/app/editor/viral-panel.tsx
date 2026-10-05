@@ -4,7 +4,9 @@ import { useState } from "react";
 import { HardLink } from "@/components/hard-link";
 import { LockIcon, SparkIcon } from "@/components/icons";
 import type { ViralClip, ViralScores } from "@/lib/assistant/viral";
+import type { SpeechOptions } from "@/lib/video/transcribe";
 import { ClipPreview } from "./clip-preview";
+import { SpeechControls } from "./export-settings";
 import { formatTime } from "./format";
 
 export type ViralRange = { min: number; max: number; label: string };
@@ -52,6 +54,8 @@ interface Props {
   clipName: (clipId: string) => string;
   /** The source video's blob URL, for live previews. */
   clipUrl: (clipId: string) => string | undefined;
+  speech: SpeechOptions;
+  onSpeech: (s: SpeechOptions) => void;
   onFind: (range: ViralRange, kind: VideoKind) => void;
   onImprove: () => void;
   onUse: (clip: ViralClip) => void;
@@ -118,6 +122,12 @@ export function ViralPanel(props: Props) {
           </button>
         )}
       </div>
+
+      {kind === "talking" && (
+        <div className="relative">
+          <SpeechControls speech={props.speech} onChange={props.onSpeech} />
+        </div>
+      )}
 
       {clips && clips.length === 0 && (
         <p className="notice notice-info relative">

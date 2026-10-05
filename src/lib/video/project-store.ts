@@ -24,6 +24,8 @@ export interface StoredClip {
   info: MediaInfo;
   analysis?: ClipAnalysis;
   transcript?: Word[];
+  /** The speech settings the transcript was made with (see speechKey). */
+  transcriptKey?: string;
 }
 
 export interface StoredProject {
@@ -80,9 +82,9 @@ export const projectStore = {
     if (existing) await run(CLIPS, "readwrite", (s) => s.put({ ...existing, analysis }));
   },
 
-  async saveTranscript(id: string, transcript: Word[]): Promise<void> {
+  async saveTranscript(id: string, transcript: Word[], transcriptKey: string): Promise<void> {
     const existing = await run<StoredClip>(CLIPS, "readonly", (s) => s.get(id));
-    if (existing) await run(CLIPS, "readwrite", (s) => s.put({ ...existing, transcript }));
+    if (existing) await run(CLIPS, "readwrite", (s) => s.put({ ...existing, transcript, transcriptKey }));
   },
 
   async deleteClip(id: string): Promise<void> {

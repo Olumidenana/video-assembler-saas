@@ -121,6 +121,7 @@ export const OVERLAY_FILES = {
   fontsDir: "/fonts",
   logo: "/overlay-logo.png",
   captions: "/captions.ass",
+  music: "/music",
 };
 
 export interface Overlays {
@@ -131,6 +132,19 @@ export interface Overlays {
   logo?: boolean;
   /** Burned-in captions from the ASS file at OVERLAY_FILES.captions. */
   captions?: boolean;
+  /** Background music from `path`, mixed under the original sound. */
+  music?: MusicMix;
+}
+
+export interface MusicMix {
+  /** File written to FFmpeg's FS (WAV from the composer, or the user's own track). */
+  path: string;
+  /** Music level, 0..1. */
+  volume: number;
+  /** Original sound level, 0..1 (0 = music only). */
+  original: number;
+  /** Turn the music down while people talk (sidechain ducking). */
+  duck: boolean;
 }
 
 /** Fits one input onto the canvas: letterbox, fill-and-crop, or fit over a blurred copy. */
@@ -187,7 +201,10 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
   });
 
   const hasPost = overlays.watermark || overlays.logo || overlays.captions;
-  filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[${hasPost ? "vjoined" : "vout"}][aout]`);
+  const music = overlays.music;
+  filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[${hasPost ? "vjoined" : "vout"}][${music ? "ajoined" : "aout"}]`);
+  // Extra inputs (logo, music) come after the clips, in the order they're added.
+  let nextInput = items.length;
 
   // Overlays go on the joined video, in order: captions, logo, watermark.
   if (hasPost) {
@@ -199,7 +216,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     if (overlays.captions) step(`subtitles=${OVERLAY_FILES.captions}:fontsdir=${OVERLAY_FILES.fontsDir}`, "vcap");
     if (overlays.logo) {
       inputs.push("-i", OVERLAY_FILES.logo);
-      const logoInput = items.length;
+      const logoInput = nextInput++;
       const size = Math.round(Math.min(W, H) * 0.16);
       filters.push(`[${logoInput}:v]scale=${size}:-1,format=rgba,colorchannelmixer=aa=0.9[logo]`);
       const margin = Math.round(Math.min(W, H) * 0.04);
@@ -217,6 +234,34 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
       );
     }
     filters.push(`[${current}]null[vout]`);
+  }
+
+  if (music) {
+    const total = secs(items.reduce((sum, i) => sum + i.end - i.start, 0));
+    inputs.push("-i", music.path);
+    const musicInput = nextInput++;
+    const fade = Math.min(1.5, Number(total) / 4).toFixed(2);
+    filters.push(
+      `[${musicInput}:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
+        `atrim=end=${total},asetpts=PTS-STARTPTS,afade=t=out:st=${(Number(total) - Number(fade)).toFixed(3)}:d=${fade},` +
+        `volume=${music.volume.toFixed(2)}[mus]`,
+      `[ajoined]volume=${music.original.toFixed(2)}[orig]`,
+    );
+    if (music.duck && music.original > 0) {
+      // Duck on the speech band, and keep 45% of the music undocked so loud
+      // scenes (fights, crowds) never bury it completely.
+      filters.push(
+        `[orig]asplit=2[origmix][origsc]`,
+        `[origsc]highpass=f=250,lowpass=f=3500[origkey]`,
+        `[mus]asplit=2[musin][musdry]`,
+        `[musin]volume=0.55[muswet]`,
+        `[muswet][origkey]sidechaincompress=threshold=0.04:ratio=8:attack=20:release=400[musduck]`,
+        `[musdry]volume=0.45[musfloor]`,
+        `[origmix][musduck][musfloor]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`,
+      );
+    } else {
+      filters.push(`[orig][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`);
+    }
   }
 
   return [

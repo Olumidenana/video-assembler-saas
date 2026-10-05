@@ -15,12 +15,14 @@ import { CancelledError, EngineCrashedError, VideoEngine } from "@/lib/video/eng
 import { chooseMethod, exportParts, exportStitched, type ExportMethod, type ExportResult } from "@/lib/video/export";
 import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/timeline";
 import { buildAss, type Word, wordsForOutput } from "@/lib/video/captions";
-import { cancelTranscription, transcribeClip } from "@/lib/video/transcribe";
-import { cutsPerMinute } from "@/lib/video/highlights";
+import { cancelTranscription, migrateSpeech, speechKey, transcribeClip } from "@/lib/video/transcribe";
+import { cutsPerMinute, outputPeak } from "@/lib/video/highlights";
+import { composeWav } from "@/lib/audio/music";
 import { findClipsByScene, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
 import { forgetThumbnails } from "./thumbnails";
+import { DEFAULT_MUSIC, type OwnTrack } from "./music-controls";
 import { VIRAL_RANGES, ViralPanel, type VideoKind, type ViralRange } from "./viral-panel";
 import type { ExportItem } from "@/lib/video/types";
 import { DownloadIcon, UploadIcon } from "@/components/icons";
@@ -71,10 +73,14 @@ export function Editor({ plan }: { plan: PlanId }) {
   const storedBytes = useRef(0);
   const [settings, setSettings] = useState<ExportSettings>(() => loadSettings());
   const transcripts = useRef(new Map<string, Word[]>());
+  // The speech settings each transcript was made with; changing them means listening again.
+  const transcriptKeys = useRef(new Map<string, string>());
   const [task, setTask] = useState<{ label: string; progress: number | null } | null>(null);
   const [viral, setViral] = useState<{ clips: ViralClip[]; basis: "transcript" | "scenes"; improved: boolean; range: ViralRange } | null>(null);
   const [logo, setLogo] = useState<{ url: string; bytes: Uint8Array } | null>(() => loadLogo());
   const fileInput = useRef<HTMLInputElement>(null);
+  // The user's own music; kept in memory only (it isn't theirs to store with the project).
+  const [ownTrack, setOwnTrack] = useState<OwnTrack | null>(null);
   // Picked on the start screen; runs once the first video has been read.
   const [goal, setGoal] = useState<Goal | null>(null);
 
@@ -184,8 +190,10 @@ export function Editor({ plan }: { plan: PlanId }) {
         dispatch({ type: "addClip", clip: { id: stored.id, file, info, url: URL.createObjectURL(file) } });
         storedBytes.current += file.size;
         if (stored.analysis) rememberAnalysis(stored.id, stored.analysis, false);
-        if (stored.transcript) transcripts.current.set(stored.id, stored.transcript);
-        else if (info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS) void getAnalysis(stored.id, info).catch(() => {});
+        if (stored.transcript) {
+          transcripts.current.set(stored.id, stored.transcript);
+          transcriptKeys.current.set(stored.id, stored.transcriptKey ?? speechKey(settings.speech));
+        } else if (info.duration <= BACKGROUND_ANALYSIS_MAX_SECONDS) void getAnalysis(stored.id, info).catch(() => {});
       } catch {
         void engine.removeClip(stored.id).catch(() => {});
       }
@@ -257,6 +265,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       URL.revokeObjectURL(timeline.clips[segment.clipId].url);
       analyses.current.delete(segment.clipId);
       transcripts.current.delete(segment.clipId);
+      transcriptKeys.current.delete(segment.clipId);
       setAnalysisState((prev) => {
         const next = { ...prev };
         delete next[segment.clipId];
@@ -377,17 +386,19 @@ export function Editor({ plan }: { plan: PlanId }) {
   /** Makes sure every listed clip has word timings, transcribing what's missing. */
   async function ensureTranscripts(clipIds: string[]) {
     for (const id of clipIds) {
-      if (transcripts.current.has(id)) continue;
+      const key = speechKey(settings.speech);
+      if (transcripts.current.has(id) && transcriptKeys.current.get(id) === key) continue;
       const clip = timeline.clips[id];
       if (!clip) continue;
-      const words = await transcribeClip(engine, id, clip.info, settings.language, (p) =>
+      const words = await transcribeClip(engine, id, clip.info, settings.speech, (p) =>
         setTask({
           label: p.stage === "download" ? "Downloading the speech model (first time only)…" : `Listening to ${clip.file.name}…`,
           progress: p.progress,
         }),
       );
       transcripts.current.set(id, words);
-      if (persist.current) void projectStore.saveTranscript(id, words).catch(() => {});
+      transcriptKeys.current.set(id, key);
+      if (persist.current) void projectStore.saveTranscript(id, words, key).catch(() => {});
     }
   }
 
@@ -551,6 +562,22 @@ export function Editor({ plan }: { plan: PlanId }) {
         setTask(null);
       }
     }
+    const music = settings.music;
+    const composed = music.style !== "none" && music.style !== "own" ? music.style : null;
+    if (composed) {
+      // The drop is lined up with the biggest moment, so every clip needs its analysis.
+      try {
+        for (const id of new Set(items.map((i) => i.clipId))) {
+          if (!analyses.current.has(id)) {
+            await getAnalysis(id, timeline.clips[id].info, (r) => setTask({ label: "Finding the big moment for the drop…", progress: r }));
+          }
+        }
+      } catch (err) {
+        if (err instanceof CancelledError) return;
+      } finally {
+        setTask(null);
+      }
+    }
     setExportState({ status: "running", progress: 0 });
     const style = limits.captionStyles === "all" ? settings.captionStyle : "clean";
     const options = {
@@ -566,6 +593,15 @@ export function Editor({ plan }: { plan: PlanId }) {
             return words.length ? buildAss(words, style, canvas) : null;
           }
         : undefined,
+      music:
+        composed || (music.style === "own" && ownTrack)
+          ? async (renderItems: ExportItem[], duration: number) => {
+              const mix = { volume: music.volume, original: music.original, duck: music.duck };
+              if (!composed) return ownTrack ? { ...mix, bytes: ownTrack.bytes, ext: ownTrack.ext } : null;
+              const seed = Math.round(renderItems[0].start * 10) + renderItems.length;
+              return { ...mix, bytes: await composeWav(composed, duration, outputPeak(renderItems, analyses.current), seed), ext: "wav" };
+            }
+          : undefined,
       onProgress: (progress: number) => setExportState({ status: "running", progress }),
     };
     try {
@@ -619,6 +655,7 @@ export function Editor({ plan }: { plan: PlanId }) {
         watermark: limits.watermark,
         logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
         captions: settings.captions ? () => null : undefined,
+        music: settings.music.style !== "none" ? async () => null : undefined,
       }),
     ),
   );
@@ -789,6 +826,8 @@ export function Editor({ plan }: { plan: PlanId }) {
           improved={viral?.improved ?? false}
           clipName={(id) => clips[id]?.file.name ?? "video"}
           clipUrl={(id) => clips[id]?.url}
+          speech={settings.speech}
+          onSpeech={(speech) => setSettings((s) => ({ ...s, speech }))}
           onFind={(range, kind) => void findViral(range, kind)}
           onImprove={() => void improveViral()}
           onUse={useViralClip}
@@ -861,6 +900,13 @@ export function Editor({ plan }: { plan: PlanId }) {
             disabled={running}
             logoUrl={logo?.url ?? null}
             onLogo={(f) => void changeLogo(f)}
+            ownTrack={ownTrack}
+            onOwnTrack={(file) => {
+              if (!file) return setOwnTrack(null);
+              void file.arrayBuffer().then((buf) =>
+                setOwnTrack({ name: file.name, bytes: new Uint8Array(buf), ext: (file.name.split(".").pop() ?? "mp3").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp3" }),
+              );
+            }}
           />
 
           <fieldset className="grid gap-3 sm:grid-cols-2" disabled={running}>
@@ -1019,8 +1065,12 @@ const LOGO_KEY = "anti-timeout:logo";
 
 function loadSettings(): ExportSettings {
   try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<ExportSettings> | null;
-    return { ...DEFAULT_EXPORT_SETTINGS, ...saved };
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as (Partial<ExportSettings> & { language?: unknown }) | null;
+    const { language, ...rest } = saved ?? {};
+    const music = { ...DEFAULT_MUSIC, ...rest.music };
+    // Your own track isn't saved, so it can't be the remembered choice.
+    if (music.style === "own") music.style = "none";
+    return { ...DEFAULT_EXPORT_SETTINGS, ...rest, speech: migrateSpeech(rest.speech ?? language), music };
   } catch {
     return DEFAULT_EXPORT_SETTINGS;
   }

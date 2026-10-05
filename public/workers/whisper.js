@@ -29,7 +29,7 @@ async function load(model) {
 }
 
 self.onmessage = async ({ data }) => {
-  const { id, model, audio, offset, multilingual } = data;
+  const { id, model, audio, offset, multilingual, language, task } = data;
   try {
     const transcriber = await load(model);
     self.postMessage({ type: "ready", id });
@@ -37,8 +37,9 @@ self.onmessage = async ({ data }) => {
       return_timestamps: "word",
       chunk_length_s: 30,
       stride_length_s: 5,
-      // English-only models must not be given a language or task.
-      ...(multilingual ? { task: "transcribe" } : {}),
+      // English-only models must not be given a language or task. Without a
+      // language, multilingual models detect it; "translate" writes English.
+      ...(multilingual ? { task: task ?? "transcribe", ...(language ? { language } : {}) } : {}),
     });
     const words = (output.chunks ?? [])
       .map((c) => {

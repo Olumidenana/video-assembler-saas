@@ -366,3 +366,49 @@ export function mergeClose(ranges: Range[], gap: number): Range[] {
   }
   return out;
 }
+
+/**
+ * Where the strongest moment arrives in an export's output timeline (seconds),
+ * for lining up a music drop with it. Energy (loudness + motion) is measured
+ * relative to this output only, without the clip-wide cap scoreClip uses, so
+ * a rising fight peaks at its real climax; the drop goes where the energy
+ * first gets near that peak. Skips the first and last second and a half so
+ * the build-up and outro have room. Without analyses, a quarter of the way in.
+ */
+export function outputPeak(items: { clipId: string; start: number; end: number }[], analyses: Map<string, ClipAnalysis>): number {
+  const total = items.reduce((sum, i) => sum + i.end - i.start, 0);
+  const fallback = Math.round(Math.min(2, total / 4) * 100) / 100;
+  const points: { t: number; loud: number; motion: number }[] = [];
+  let offset = 0;
+  for (const item of items) {
+    const a = analyses.get(item.clipId);
+    if (a) {
+      for (let bin = Math.floor(item.start / BIN_SECONDS); bin * BIN_SECONDS < item.end && bin < a.motion.length; bin++) {
+        points.push({
+          t: offset + Math.max(0, bin * BIN_SECONDS - item.start),
+          loud: a.hasAudio ? Math.max(SILENCE_DB, a.loudness[bin] ?? SILENCE_DB) : 0,
+          motion: a.cuts[bin] > 0.3 ? 0 : a.motion[bin],
+        });
+      }
+    }
+    offset += item.end - item.start;
+  }
+  if (points.length < 4) return fallback;
+  const scale = (values: number[]) => {
+    const lo = Math.min(...values);
+    const hi = Math.max(...values);
+    return values.map((v) => (hi - lo < 1e-6 ? 0 : (v - lo) / (hi - lo)));
+  };
+  const hasAudio = points.some((p) => p.loud !== 0);
+  const loud = scale(points.map((p) => p.loud));
+  const motion = scale(points.map((p) => p.motion));
+  const energy = smooth(points.map((_, i) => (hasAudio ? 0.65 * loud[i] + 0.35 * motion[i] : motion[i])), 2);
+
+  const lo = Math.min(1.5, total * 0.15);
+  const hi = Math.max(lo, total - 1.5);
+  const inRange = points.map((p, i) => ({ t: p.t, e: energy[i] })).filter((p) => p.t >= lo && p.t <= hi);
+  if (inRange.length === 0) return fallback;
+  const best = Math.max(...inRange.map((p) => p.e));
+  const at = inRange.find((p) => p.e >= best - 0.08)!.t;
+  return Math.round(at * 100) / 100;
+}

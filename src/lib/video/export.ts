@@ -8,6 +8,7 @@ import {
   computeCanvas,
   type Fit,
   isUntrimmed,
+  type MusicMix,
   OVERLAY_FILES,
 } from "./commands";
 import type { VideoEngine } from "./engine";
@@ -33,12 +34,20 @@ export interface ExportOptions {
   logo?: Uint8Array | null;
   /** Builds the ASS captions for one render's items (in output time), or null for none. */
   captions?: (items: ExportItem[], canvas: Canvas) => string | null;
+  /** Background music for one render's items (composed to fit them), or null for none. */
+  music?: (items: ExportItem[], duration: number) => Promise<MusicTrack | null>;
   onProgress?: (ratio: number) => void;
 }
 
-/** Overlays and reframing change pixels, which stream copy can't do. */
+export interface MusicTrack extends Omit<MusicMix, "path"> {
+  bytes: Uint8Array;
+  /** File extension FFmpeg should see ("wav", "mp3", "m4a"…). */
+  ext: string;
+}
+
+/** Overlays, reframing and music change the picture or sound, which stream copy can't do. */
 const needsPixels = (o: ExportOptions) =>
-  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions);
+  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music);
 
 /** Which method an export of these items will use. */
 export function chooseMethod(items: ExportItem[], options: ExportOptions): ExportMethod {
@@ -83,6 +92,11 @@ async function render(
       : {};
   if (ass) overlayFiles[OVERLAY_FILES.captions] = ass;
   if (method === "reencode" && options.logo) overlayFiles[OVERLAY_FILES.logo] = options.logo;
+  const track = method === "reencode" && options.music ? await options.music(items, totalDuration) : null;
+  const music: MusicMix | undefined = track
+    ? { path: `${OVERLAY_FILES.music}.${track.ext}`, volume: track.volume, original: track.original, duck: track.duck }
+    : undefined;
+  if (track && music) overlayFiles[music.path] = track.bytes;
 
   const bytes =
     method === "copy"
@@ -100,6 +114,7 @@ async function render(
             watermark: options.watermark,
             logo: Boolean(options.logo),
             captions: Boolean(ass),
+            music,
           }),
           output,
           { totalDuration, onProgress },

@@ -5,14 +5,16 @@ import { LockIcon } from "@/components/icons";
 import type { PlanLimits } from "@/lib/plans";
 import { CAPTION_STYLES, type CaptionStyleId } from "@/lib/video/captions";
 import type { Aspect, Fit } from "@/lib/video/commands";
-import type { CaptionLanguage } from "@/lib/video/transcribe";
+import { DEFAULT_MUSIC, MusicControls, type MusicSettings, type OwnTrack } from "./music-controls";
+import { DEFAULT_SPEECH, SPEECH_LANGUAGES, type SpeechOptions } from "@/lib/video/transcribe";
 
 export interface ExportSettings {
   aspect: Aspect;
   fit: Fit;
   captions: boolean;
   captionStyle: CaptionStyleId;
-  language: CaptionLanguage;
+  speech: SpeechOptions;
+  music: MusicSettings;
 }
 
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
@@ -20,7 +22,8 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   fit: "blur",
   captions: false,
   captionStyle: "clean",
-  language: "english",
+  speech: DEFAULT_SPEECH,
+  music: DEFAULT_MUSIC,
 };
 
 const ASPECTS: { id: Aspect; label: string; hint: string }[] = [
@@ -37,9 +40,11 @@ interface Props {
   disabled: boolean;
   logoUrl: string | null;
   onLogo: (file: File | null) => void;
+  ownTrack: OwnTrack | null;
+  onOwnTrack: (file: File | null) => void;
 }
 
-export function ExportSettingsPanel({ settings, onChange, limits, disabled, logoUrl, onLogo }: Props) {
+export function ExportSettingsPanel({ settings, onChange, limits, disabled, logoUrl, onLogo, ownTrack, onOwnTrack }: Props) {
   const set = (patch: Partial<ExportSettings>) => onChange({ ...settings, ...patch });
   const chip = (active: boolean) =>
     `rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-40 ${
@@ -101,22 +106,12 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
                 );
               })}
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-              Spoken language:
-              <select
-                value={settings.language}
-                onChange={(e) => set({ language: e.target.value as CaptionLanguage })}
-                className="input h-8"
-                aria-label="Spoken language"
-              >
-                <option value="english">English (best accuracy)</option>
-                <option value="other">Other / mixed (Pidgin, Yoruba, French…)</option>
-              </select>
-              <span className="text-xs text-subtle">First use downloads a speech model (~40–150 MB), then it&apos;s cached.</span>
-            </div>
+            <SpeechControls speech={settings.speech} onChange={(speech) => set({ speech })} />
           </>
         )}
       </div>
+
+      <MusicControls music={settings.music} onChange={(music) => set({ music })} ownTrack={ownTrack} onOwnTrack={onOwnTrack} />
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         {limits.brandLogo ? (
@@ -154,5 +149,44 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         )}
       </div>
     </fieldset>
+  );
+}
+
+/** Language, translation and accuracy for captions (and for the Viral Clip Finder's transcript). */
+export function SpeechControls({ speech, onChange }: { speech: SpeechOptions; onChange: (s: SpeechOptions) => void }) {
+  const set = (patch: Partial<SpeechOptions>) => onChange({ ...speech, ...patch });
+  return (
+    <div className="flex flex-col gap-2 text-sm text-muted">
+      <div className="flex flex-wrap items-center gap-2">
+        Spoken language:
+        <select value={speech.language} onChange={(e) => set({ language: e.target.value })} className="input h-8" aria-label="Spoken language">
+          {SPEECH_LANGUAGES.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.label}
+            </option>
+          ))}
+          <option disabled>…and ~80 more with “Detect automatically”</option>
+        </select>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={speech.translate} onChange={(e) => set({ translate: e.target.checked })} className="accent-brand" />
+          Translate captions to English
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        Accuracy:
+        {(["standard", "high"] as const).map((q) => (
+          <button
+            key={q}
+            type="button"
+            onClick={() => set({ quality: q })}
+            aria-pressed={speech.quality === q}
+            className={`rounded-lg border px-2.5 py-1 text-xs transition-colors ${speech.quality === q ? "border-brand/60 bg-brand/[0.08] text-fg" : "border-line hover:border-line-strong"}`}
+          >
+            {q === "standard" ? "Standard (~40–80 MB)" : "High (~80–250 MB, best for accents & non-English)"}
+          </button>
+        ))}
+      </div>
+      <span className="text-xs text-subtle">The speech model downloads once, then it&apos;s cached. Everything runs on your device.</span>
+    </div>
   );
 }

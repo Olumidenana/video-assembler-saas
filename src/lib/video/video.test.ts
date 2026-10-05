@@ -124,6 +124,35 @@ describe("command builders", () => {
     expect(args.at(-1)).toBe("/out.mp4");
   });
 
+  it("mixes music under the original sound, ducking it while people talk", () => {
+    const args = buildReencodeArgs([item({ start: 0, end: 8 })], { width: 1280, height: 720, fps: 30 }, "/out.mp4", {
+      logo: true,
+      music: { path: "/music.wav", volume: 0.6, original: 0.9, duck: true },
+    });
+    // Inputs: clip 0, logo 1, music 2.
+    expect(args.filter((a, i) => args[i - 1] === "-i")).toEqual(["/in/a/source", "/overlay-logo.png", "/music.wav"]);
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    expect(graph).toContain("concat=n=1:v=1:a=1[vjoined][ajoined]");
+    expect(graph).toContain("[1:v]scale=");
+    expect(graph).toContain("[2:a:0]aresample=48000");
+    expect(graph).toContain("atrim=end=8.000");
+    expect(graph).toContain("afade=t=out:st=6.500:d=1.50");
+    expect(graph).toContain("volume=0.60[mus]");
+    expect(graph).toContain("[ajoined]volume=0.90[orig]");
+    expect(graph).toContain("sidechaincompress");
+    expect(graph).toMatch(/amix=inputs=3[^;]*\[aout\]$/);
+    expect(graph).toContain("[musdry]volume=0.45[musfloor]");
+  });
+
+  it("plays music alone when the original sound is off", () => {
+    const args = buildReencodeArgs([item()], { width: 1280, height: 720, fps: 30 }, "/out.mp4", {
+      music: { path: "/music.wav", volume: 1, original: 0, duck: true },
+    });
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    expect(graph).not.toContain("sidechaincompress");
+    expect(graph).toContain("[1:a:0]aresample=48000");
+  });
+
   it("parses progress times from FFmpeg logs", () => {
     expect(parseLogTime("frame=  90 fps=30 q=28.0 size=256kB time=00:01:02.50 bitrate=")).toBeCloseTo(62.5);
     expect(parseLogTime("Input #0, mov,mp4")).toBeNull();

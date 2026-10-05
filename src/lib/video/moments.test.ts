@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { findClipsByScene } from "@/lib/assistant/viral";
 import type { ClipAnalysis } from "./analysis";
-import { findMoments, pickHighlights, themeSongRanges } from "./highlights";
+import { findMoments, outputPeak, pickHighlights, themeSongRanges } from "./highlights";
 
 /** Deterministic pseudo-random numbers, so the synthetic episode is the same every run. */
 function rng(seed: number) {
@@ -113,5 +113,19 @@ describe("pickHighlights on an episode", () => {
       expect(overlap(r, 90, 180)).toBe(0);
     }
     expect(picks.some((r) => overlap(r, 900, 960) > 0)).toBe(true);
+  });
+});
+
+describe("outputPeak", () => {
+  it("finds the fight's peak in output time, for the music drop", () => {
+    const analyses = new Map([["ep", episode()]]);
+    // A 30 s clip from 920 s: the peak (~945 s) is ~25 s into the output.
+    const t = outputPeak([{ clipId: "ep", start: 920, end: 950 }], analyses);
+    expect(t).toBeGreaterThan(18);
+    expect(t).toBeLessThanOrEqual(28.5);
+  });
+
+  it("falls back to a quarter of the way in without analyses", () => {
+    expect(outputPeak([{ clipId: "x", start: 0, end: 4 }], new Map())).toBe(1);
   });
 });
