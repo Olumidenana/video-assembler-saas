@@ -14,24 +14,42 @@ export const VIRAL_RANGES: ViralRange[] = [
   { min: 60, max: 90, label: "60–90s · YouTube & long Reels" },
 ];
 
-const SIGNALS: { key: keyof ViralScores; label: string }[] = [
-  { key: "hook", label: "Hook" },
-  { key: "curiosity", label: "Curiosity" },
-  { key: "emotion", label: "Emotion" },
-  { key: "value", label: "Value" },
-  { key: "pacing", label: "Pacing" },
+/** "talking": podcasts, vlogs, sermons (scored on the words); "scenes": anime, films, gaming, skits (scored on the edit). */
+export type VideoKind = "auto" | "talking" | "scenes";
+
+const KINDS: { id: VideoKind; label: string; title: string }[] = [
+  { id: "auto", label: "Auto", title: "Decide from how the video is edited" },
+  { id: "talking", label: "Talking", title: "Podcasts, interviews, vlogs, sermons: scored on what's said" },
+  { id: "scenes", label: "Scenes", title: "Anime, films, gaming, sports, skits: scored on the action and story arc" },
 ];
+
+const SIGNALS: Record<"transcript" | "scenes", { key: keyof ViralScores; label: string }[]> = {
+  transcript: [
+    { key: "hook", label: "Hook" },
+    { key: "curiosity", label: "Curiosity" },
+    { key: "emotion", label: "Emotion" },
+    { key: "value", label: "Value" },
+    { key: "pacing", label: "Pacing" },
+  ],
+  scenes: [
+    { key: "hook", label: "Hook" },
+    { key: "curiosity", label: "Build-up" },
+    { key: "emotion", label: "Peak" },
+    { key: "value", label: "Intensity" },
+    { key: "pacing", label: "Pacing" },
+  ],
+};
 
 interface Props {
   clips: ViralClip[] | null;
-  /** "transcript" = scored on words + sound; "sound" = no speech found, scored on sound & action. */
-  basis: "transcript" | "sound" | null;
+  /** "transcript" = scored on words + sound; "scenes" = scored on the edit, sound and action. */
+  basis: "transcript" | "scenes" | null;
   busy: boolean;
   exportable: number;
   canImprove: boolean;
   improved: boolean;
   clipName: (clipId: string) => string;
-  onFind: (range: ViralRange) => void;
+  onFind: (range: ViralRange, kind: VideoKind) => void;
   onImprove: () => void;
   onUse: (clip: ViralClip) => void;
   onExport: (clips: ViralClip[]) => void;
@@ -40,6 +58,7 @@ interface Props {
 export function ViralPanel(props: Props) {
   const { clips, busy, exportable } = props;
   const [range, setRange] = useState(VIRAL_RANGES[0]);
+  const [kind, setKind] = useState<VideoKind>("auto");
   const unlocked = clips?.slice(0, exportable) ?? [];
 
   return (
@@ -58,6 +77,21 @@ export function ViralPanel(props: Props) {
       </div>
 
       <div className="relative flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap rounded-lg border border-line p-0.5" role="radiogroup" aria-label="Video type">
+          {KINDS.map((k) => (
+            <button
+              key={k.id}
+              type="button"
+              role="radio"
+              aria-checked={kind === k.id}
+              title={k.title}
+              onClick={() => setKind(k.id)}
+              className={`rounded-md px-3 py-1 text-xs transition-colors sm:text-sm ${kind === k.id ? "bg-surface-3 text-fg" : "text-muted hover:text-fg"}`}
+            >
+              {k.label}
+            </button>
+          ))}
+        </div>
         <div className="flex flex-wrap rounded-lg border border-line p-0.5" role="radiogroup" aria-label="Clip length">
           {VIRAL_RANGES.map((r) => (
             <button
@@ -72,7 +106,7 @@ export function ViralPanel(props: Props) {
             </button>
           ))}
         </div>
-        <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => props.onFind(range)}>
+        <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => props.onFind(range, kind)}>
           {clips ? "Find again" : "Find viral clips"}
         </button>
         {clips && clips.length > 0 && props.canImprove && !props.improved && (
@@ -93,14 +127,14 @@ export function ViralPanel(props: Props) {
           <p className="relative text-xs text-subtle">
             {props.improved
               ? "Picked and written by AI using content psychology."
-              : props.basis === "sound"
-                ? "No speech found, so clips are scored on sound and action."
+              : props.basis === "scenes"
+                ? "Scored on scenes: the opening, build-up, peak, intensity and pace of the edit. Theme songs are skipped."
                 : "Scored on the words spoken plus sound and action."}{" "}
             Scores are a guide, not a promise. Your audience decides.
           </p>
           <ol className="relative grid gap-3 md:grid-cols-2" data-testid="viral-clips">
             {clips.map((clip, i) => (
-              <ClipCard key={clip.id} clip={clip} rank={i + 1} locked={i >= exportable} busy={busy} name={props.clipName(clip.clipId)} onUse={props.onUse} onExport={(c) => props.onExport([c])} />
+              <ClipCard key={clip.id} clip={clip} signals={SIGNALS[props.basis ?? "transcript"]} rank={i + 1} locked={i >= exportable} busy={busy} name={props.clipName(clip.clipId)} onUse={props.onUse} onExport={(c) => props.onExport([c])} />
             ))}
           </ol>
           {unlocked.length > 1 && (
@@ -129,6 +163,7 @@ function ScoreRing({ score }: { score: number }) {
 
 function ClipCard({
   clip,
+  signals,
   rank,
   locked,
   busy,
@@ -137,6 +172,7 @@ function ClipCard({
   onExport,
 }: {
   clip: ViralClip;
+  signals: { key: keyof ViralScores; label: string }[];
   rank: number;
   locked: boolean;
   busy: boolean;
@@ -159,7 +195,7 @@ function ClipCard({
         </div>
         <p className="border-l-2 border-brand/50 pl-3 text-sm italic text-muted">“{clip.hook}”</p>
         <div className="grid grid-cols-5 gap-1.5">
-          {SIGNALS.map((s) => (
+          {signals.map((s) => (
             <div key={s.key} className="flex flex-col gap-1">
               <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
                 <div className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2" style={{ width: `${clip.scores[s.key]}%` }} />

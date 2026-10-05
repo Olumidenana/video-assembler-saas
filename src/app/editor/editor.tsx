@@ -16,11 +16,11 @@ import { chooseMethod, exportParts, exportStitched, type ExportMethod, type Expo
 import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/timeline";
 import { buildAss, type Word, wordsForOutput } from "@/lib/video/captions";
 import { cancelTranscription, transcribeClip } from "@/lib/video/transcribe";
-import { scoreClip } from "@/lib/video/highlights";
-import { findClipsBySound, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
+import { cutsPerMinute } from "@/lib/video/highlights";
+import { findClipsByScene, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
-import { VIRAL_RANGES, ViralPanel, type ViralRange } from "./viral-panel";
+import { VIRAL_RANGES, ViralPanel, type VideoKind, type ViralRange } from "./viral-panel";
 import type { ExportItem } from "@/lib/video/types";
 import { DownloadIcon, UploadIcon } from "@/components/icons";
 import { AutoEditPanel, type AssistantMessage } from "./auto-edit-panel";
@@ -71,7 +71,7 @@ export function Editor({ plan }: { plan: PlanId }) {
   const [settings, setSettings] = useState<ExportSettings>(() => loadSettings());
   const transcripts = useRef(new Map<string, Word[]>());
   const [task, setTask] = useState<{ label: string; progress: number | null } | null>(null);
-  const [viral, setViral] = useState<{ clips: ViralClip[]; basis: "transcript" | "sound"; improved: boolean; range: ViralRange } | null>(null);
+  const [viral, setViral] = useState<{ clips: ViralClip[]; basis: "transcript" | "scenes"; improved: boolean; range: ViralRange } | null>(null);
   const [logo, setLogo] = useState<{ url: string; bytes: Uint8Array } | null>(() => loadLogo());
   const fileInput = useRef<HTMLInputElement>(null);
   // Picked on the start screen; runs once the first video has been read.
@@ -396,29 +396,38 @@ export function Editor({ plan }: { plan: PlanId }) {
     setTask(null);
   }
 
-  async function findViral(range: ViralRange) {
+  async function findViral(range: ViralRange, kind: VideoKind = "auto") {
     const ids = [...new Set(timeline.segments.map((s) => s.clipId))];
     setViral(null);
     try {
       setTask({ label: "Watching your videos…", progress: null });
       for (const id of ids) await getAnalysis(id, timeline.clips[id].info, (r) => setTask({ label: "Watching your videos…", progress: r }));
+      // Heavily edited footage (anime, films, gaming) is judged on its scenes;
+      // talking videos (few cuts) on what's said, which needs a transcript.
+      const byScenes = (id: string) => {
+        const { info } = timeline.clips[id];
+        if (kind === "scenes" || !info.audioCodec) return true;
+        if (kind === "talking") return false;
+        return cutsPerMinute(analyses.current.get(id)!) >= 6;
+      };
       let speech = true;
       try {
-        await ensureTranscripts(ids.filter((id) => timeline.clips[id].info.audioCodec));
+        await ensureTranscripts(ids.filter((id) => !byScenes(id)));
       } catch (err) {
         if (err instanceof CancelledError) throw err;
-        speech = false; // Speech model unavailable (offline, old browser): fall back to sound & action.
+        speech = false; // Speech model unavailable (offline, old browser): fall back to scenes.
       }
       setTask({ label: "Scoring moments…", progress: null });
       const opts = { minSeconds: range.min, maxSeconds: range.max, maxClips: 10 };
-      let basis: "transcript" | "sound" = "transcript";
+      let basis: "transcript" | "scenes" = "scenes";
       const found = ids.flatMap((id) => {
-        const words = speech ? (transcripts.current.get(id) ?? []) : [];
+        const words = speech && !byScenes(id) ? (transcripts.current.get(id) ?? []) : [];
         const byWords = words.length > 20 ? findViralClips(id, words, analyses.current.get(id), opts) : [];
-        if (byWords.length) return byWords;
-        basis = "sound";
-        const analysis = analyses.current.get(id);
-        return analysis ? findClipsBySound(id, timeline.clips[id].info.duration, scoreClip(analysis), opts) : [];
+        if (byWords.length) {
+          basis = "transcript";
+          return byWords;
+        }
+        return findClipsByScene(id, timeline.clips[id].info.duration, analyses.current.get(id)!, opts);
       });
       setViral({ clips: found.sort((a, b) => b.score - a.score).slice(0, 10), basis, improved: false, range });
     } catch (err) {
@@ -777,7 +786,7 @@ export function Editor({ plan }: { plan: PlanId }) {
           canImprove={plan !== "free"}
           improved={viral?.improved ?? false}
           clipName={(id) => clips[id]?.file.name ?? "video"}
-          onFind={(range) => void findViral(range)}
+          onFind={(range, kind) => void findViral(range, kind)}
           onImprove={() => void improveViral()}
           onUse={useViralClip}
           onExport={exportViralClips}

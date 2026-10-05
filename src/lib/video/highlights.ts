@@ -55,7 +55,7 @@ export function scoreClip(a: ClipAnalysis): number[] {
 }
 
 /** Per-bin scores without smoothing; used to place cut boundaries precisely. */
-function rawScores(a: ClipAnalysis): number[] {
+export function rawScores(a: ClipAnalysis): number[] {
   const motion = a.motion.map((m, i) =>
     a.cuts[i] > 0.3 ? Math.min(a.motion[i - 1] ?? 0, a.motion[i + 1] ?? 0, m) : m,
   );
@@ -80,15 +80,11 @@ export function autoTarget(totalSeconds: number): number {
 }
 
 /**
- * Picks the best moments across all clips until they add up to the target
- * length, then returns them in source order (clip order, then time), so the
- * story still flows.
- *
- * 1. Rank every half-second by its smoothed score and take the best ones until
- *    the target is reached (smoothing favours sustained moments over blips).
- * 2. Join picks that sit within a second of each other into one cut.
- * 3. Stretch cuts shorter than 2 s toward their better-scoring side, so no cut
- *    is a jarring flash.
+ * Builds a highlight reel from whole moments (see findMoments), never from
+ * scattered half-seconds: the best few scenes until the target length, the
+ * last one trimmed around its peak to fit, returned in source order so the
+ * story still flows. Moments much weaker than the best are left out, so a
+ * reel can come out a little short rather than padded with filler.
  */
 export function pickHighlights(clips: AnalyzedClip[], { targetSeconds }: HighlightOptions): Range[] {
   const total = clips.reduce((sum, c) => sum + c.duration, 0);
@@ -97,47 +93,220 @@ export function pickHighlights(clips: AnalyzedClip[], { targetSeconds }: Highlig
     return clips.map((c) => ({ clipId: c.clipId, start: 0, end: round(c.duration) }));
   }
 
-  const scored = clips.map((c) => ({
-    ...c,
-    smooth: scoreClip(c.analysis),
-    raw: rawScores(c.analysis),
-    picked: new Array<boolean>(c.analysis.motion.length).fill(false),
-  }));
-
-  const ranked = scored
-    .flatMap((c, ci) => c.smooth.map((score, bin) => ({ ci, bin, score })))
+  // Short reels use short moments; longer reels get a few proper scenes.
+  const maxSeconds = Math.min(20, Math.max(4, targetSeconds / 2));
+  const minSeconds = Math.min(maxSeconds, Math.max(3, Math.min(8, targetSeconds / 5)));
+  const moments = clips
+    .flatMap((c) => findMoments(c.clipId, c.duration, c.analysis, { minSeconds, maxSeconds, maxMoments: 40 }))
     .sort((a, b) => b.score - a.score);
-  const wanted = Math.max(1, Math.round(targetSeconds / BIN_SECONDS));
-  for (const { ci, bin } of ranked.slice(0, wanted)) scored[ci].picked[bin] = true;
+  if (moments.length === 0) {
+    const first = clips[0];
+    return [{ clipId: first.clipId, start: 0, end: round(Math.min(first.duration, targetSeconds)) }];
+  }
 
-  const minBins = Math.min(wanted, Math.round(2 / BIN_SECONDS));
-  const ranges: Range[] = [];
-  for (const c of scored) {
-    const bins = c.picked.length;
-    // Contiguous runs of picked bins, joined across gaps of up to 1 s.
-    const runs: [number, number][] = [];
-    c.picked.forEach((on, i) => {
-      if (!on) return;
-      const last = runs[runs.length - 1];
-      if (last && i - last[1] <= 1 / BIN_SECONDS + 1) last[1] = i;
-      else runs.push([i, i]);
-    });
-    for (const run of runs) {
-      let [lo, hi] = run;
-      while (hi - lo + 1 < minBins && (lo > 0 || hi < bins - 1)) {
-        const left = lo > 0 ? c.raw[lo - 1] : -1;
-        const right = hi < bins - 1 ? c.raw[hi + 1] : -1;
-        if (right >= left) hi++;
-        else lo--;
+  const picked: Range[] = [];
+  let sum = 0;
+  for (const m of moments) {
+    const room = targetSeconds - sum;
+    if (room < 2 || m.score < moments[0].score * 0.5) break;
+    let { start, end } = m;
+    if (end - start > room + 0.5) {
+      // Keep the part around the peak that fits.
+      start = Math.min(Math.max(m.peak - room / 2, m.start), m.end - room);
+      end = start + room;
+    }
+    picked.push({ clipId: m.clipId, start: round(start), end: round(end) });
+    sum += end - start;
+  }
+  const order = new Map(clips.map((c, i) => [c.clipId, i]));
+  picked.sort((a, b) => order.get(a.clipId)! - order.get(b.clipId)! || a.start - b.start);
+  // Neighbouring moments play as one scene rather than with a jarring 1–2 s jump.
+  return mergeClose(picked, 2.5);
+}
+
+/** A stretch of one clip that works on its own, with what makes it watchable (each 0..1). */
+export interface Moment {
+  clipId: string;
+  start: number;
+  end: number;
+  /** Time of the strongest point, in seconds. */
+  peak: number;
+  signals: {
+    /** Energy in the first 3 seconds. */
+    hook: number;
+    /** Energy rising from the first half to the second (anticipation). */
+    build: number;
+    /** Height of the biggest moment. */
+    peak: number;
+    /** Average energy throughout. */
+    intensity: number;
+    /** How often the shot changes. */
+    pacing: number;
+  };
+  /** The peak lands after the opening and before the very end (a payoff, not a cut mid-action). */
+  arc: boolean;
+  /** Starts and ends on scene changes. */
+  clean: boolean;
+  score: number;
+}
+
+export interface MomentOptions {
+  minSeconds: number;
+  maxSeconds: number;
+  maxMoments: number;
+}
+
+const CUT_THRESHOLD = 0.3;
+/** Opening/ending theme songs: this long or longer, in bins (60 s). */
+const THEME_MIN_BINS = 120;
+const THEME_MAX_BINS = 220;
+
+/** Bins containing a hard cut (at most one per second). */
+export function cutBins(a: ClipAnalysis): number[] {
+  const out: number[] = [];
+  a.cuts.forEach((c, i) => {
+    if (c > CUT_THRESHOLD && (out.length === 0 || i - out[out.length - 1] >= 2)) out.push(i);
+  });
+  return out;
+}
+
+export function cutsPerMinute(a: ClipAnalysis): number {
+  const minutes = (a.cuts.length * BIN_SECONDS) / 60;
+  return minutes > 0 ? cutBins(a).length / minutes : 0;
+}
+
+/**
+ * Finds opening/ending theme songs in long videos (episodes): a minute or
+ * more of steady, loud sound with no pauses, near the start or the end.
+ * Speech and sound effects rise and fall; mastered music doesn't. Without
+ * this, a theme song (loud, fast cuts) would always look like the best part.
+ * Returns [startBin, endBin) ranges.
+ */
+export function themeSongRanges(a: ClipAnalysis): [number, number][] {
+  const n = a.loudness.length;
+  if (!a.hasAudio || n * BIN_SECONDS < 8 * 60) return [];
+  const median = percentile(a.loudness.filter((db) => db > SILENCE_DB), 50);
+  const steady = (from: number, to: number) => {
+    const w = a.loudness.slice(from, to);
+    const mean = w.reduce((s, v) => s + v, 0) / w.length;
+    const std = Math.sqrt(w.reduce((s, v) => s + (v - mean) ** 2, 0) / w.length);
+    const loudShare = w.filter((v) => v >= median).length / w.length;
+    const dips = w.filter((v) => v < mean - 10).length;
+    return { mean, std, ok: std < 3.5 && loudShare > 0.85 && dips <= 2 };
+  };
+
+  const out: [number, number][] = [];
+  const zones: [number, number][] = [
+    [0, Math.floor(n * 0.3)],
+    [Math.floor(n * 0.7), n],
+  ];
+  for (const [z0, z1] of zones) {
+    let best: { s: number; std: number; mean: number } | null = null;
+    for (let s = z0; s + THEME_MIN_BINS <= z1; s += 4) {
+      const w = steady(s, s + THEME_MIN_BINS);
+      if (w.ok && (!best || w.std < best.std)) best = { s, std: w.std, mean: w.mean };
+    }
+    if (!best) continue;
+    // Grow to the whole song: neighbours at the same level, without dips.
+    const near = (i: number) => Math.abs(a.loudness[i] - best.mean) < 6;
+    let lo = best.s;
+    let hi = best.s + THEME_MIN_BINS;
+    while (lo > 0 && near(lo - 1) && hi - lo < THEME_MAX_BINS) lo--;
+    while (hi < n && near(hi) && hi - lo < THEME_MAX_BINS) hi++;
+    out.push([lo, hi]);
+  }
+  return out;
+}
+
+/**
+ * Scene-aware moment finder for any footage, with or without speech (anime,
+ * films, gaming, sports, skits). Candidates start and end on hard cuts when
+ * the video has them (else on a 1–2 s grid) and are scored on what keeps
+ * people watching: a strong opening, energy that builds, a big peak that
+ * lands before the end, sustained intensity and editing pace. Theme songs are
+ * skipped. Returns the best non-overlapping moments, best first.
+ */
+export function findMoments(clipId: string, duration: number, a: ClipAnalysis, opts: MomentOptions): Moment[] {
+  const n = a.motion.length;
+  const minB = Math.max(1, Math.ceil(opts.minSeconds / BIN_SECONDS));
+  const maxB = Math.max(minB, Math.floor(opts.maxSeconds / BIN_SECONDS));
+  if (n < minB) return [];
+
+  const raw = rawScores(a);
+  const sm = smooth(raw, 1);
+  const cuts = cutBins(a);
+  const cutSet = new Set(cuts);
+  // Edited footage (2+ cuts a minute) is cut on shot changes; a cut bin's
+  // successor is the first bin wholly in the new shot.
+  const useCuts = cuts.length >= ((n * BIN_SECONDS) / 60) * 2;
+  const step = n > 4000 ? 4 : 2;
+  const bounds = useCuts
+    ? [...new Set([0, ...cuts.map((c) => c + 1), n])].filter((b) => b <= n).sort((x, y) => x - y)
+    : [...Array.from({ length: Math.floor(n / step) + 1 }, (_, i) => i * step).filter((b) => b < n), n];
+
+  const blocked = new Uint8Array(n);
+  // Theme songs, plus 2 s either side so no clip opens or ends on their last notes.
+  for (const [lo, hi] of themeSongRanges(a)) blocked.fill(1, Math.max(0, lo - 4), Math.min(n, hi + 4));
+  const sum = (arr: ArrayLike<number>) => {
+    const p = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) p[i + 1] = p[i] + arr[i];
+    return p;
+  };
+  const P = sum(raw);
+  const B = sum(blocked);
+  const C = sum(Array.from({ length: n }, (_, i) => (cutSet.has(i) ? 1 : 0)));
+  const avg = (s: number, e: number) => (e > s ? (P[e] - P[s]) / (e - s) : 0);
+
+  const candidates: Moment[] = [];
+  for (let si = 0; si < bounds.length; si++) {
+    const s = bounds[si];
+    for (let sj = si + 1; sj < bounds.length; sj++) {
+      const e = bounds[sj];
+      const len = e - s;
+      if (len < minB) continue;
+      if (len > maxB) break;
+      if (B[e] - B[s] > 0) continue;
+
+      let max = -1;
+      for (let k = s; k < e; k++) max = Math.max(max, sm[k]);
+      let first = -1;
+      let last = -1;
+      for (let k = s; k < e; k++) {
+        if (sm[k] >= max - 0.02) {
+          if (first < 0) first = k;
+          last = k;
+        }
       }
-      ranges.push({
-        clipId: c.clipId,
-        start: round(lo * BIN_SECONDS),
-        end: round(Math.min(c.duration, (hi + 1) * BIN_SECONDS)),
+      const peakBin = (first + last) / 2;
+      const peakPos = (peakBin - s) / len;
+      const half = s + Math.floor(len / 2);
+      const hook = avg(s, s + Math.min(6, len));
+      const build = Math.min(1, Math.max(0, 0.5 + (avg(half, e) - avg(s, half))));
+      const intensity = avg(s, e);
+      const pacing = Math.min(1, (C[e] - C[s]) / (len * BIN_SECONDS) / 0.4);
+      const arc = peakPos >= 0.2 && peakPos <= 0.92;
+      const base = 0.28 * hook + 0.18 * build + 0.24 * max + 0.18 * intensity + 0.12 * pacing;
+      const score = base * (arc ? 1 : 0.85) * (0.92 + 0.08 * (len / maxB));
+      candidates.push({
+        clipId,
+        start: round(s * BIN_SECONDS),
+        end: round(Math.min(duration, e * BIN_SECONDS)),
+        peak: round((peakBin + 0.5) * BIN_SECONDS),
+        signals: { hook, build, peak: max, intensity, pacing },
+        arc,
+        clean: useCuts,
+        score,
       });
     }
   }
-  return mergeClose(ranges, 0.01);
+
+  const picked: Moment[] = [];
+  for (const c of candidates.sort((x, y) => y.score - x.score)) {
+    if (picked.length >= opts.maxMoments) break;
+    if (picked.some((p) => c.start < p.end + 1 && p.start < c.end + 1)) continue;
+    picked.push(c);
+  }
+  return picked;
 }
 
 export interface SilenceOptions {

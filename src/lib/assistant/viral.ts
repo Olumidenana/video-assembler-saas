@@ -6,6 +6,7 @@
  */
 import type { ClipAnalysis } from "@/lib/video/analysis";
 import type { Word } from "@/lib/video/captions";
+import { findMoments } from "@/lib/video/highlights";
 
 export interface ViralScores {
   hook: number;
@@ -238,53 +239,50 @@ export function findViralClips(
   return picked;
 }
 
+const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
 /**
- * Fallback when there's no speech (music, sports, b-roll) or captions are
- * unavailable: slide a window over the clip and keep the most energetic,
- * active stretches.
+ * Viral clips from scenes rather than speech: for anime, films, gaming,
+ * sports and skits, or any video without usable speech. See findMoments.
  */
-export function findClipsBySound(
-  clipId: string,
-  duration: number,
-  scores: number[],
-  { minSeconds = 15, maxSeconds = 60, maxClips = 10 }: FindOptions = {},
-): ViralClip[] {
-  const length = Math.min(duration, (minSeconds + maxSeconds) / 2);
-  if (length < Math.min(minSeconds, duration) || scores.length === 0) return [];
-  const bins = Math.max(1, Math.round(length / 0.5));
-  const candidates: ViralClip[] = [];
-  for (let i = 0; i + bins <= scores.length; i += 4) {
-    const window = scores.slice(i, i + bins);
-    const mean = window.reduce((s, v) => s + v, 0) / window.length;
-    const peak = Math.max(...window);
-    const opening = scores.slice(i, i + 6).reduce((s, v) => s + v, 0) / Math.min(6, window.length);
-    const sub: ViralScores = {
-      hook: clamp(opening * 100),
-      curiosity: 40,
-      emotion: clamp(peak * 100),
-      value: 40,
-      pacing: clamp(mean * 100),
+export function findClipsByScene(clipId: string, duration: number, analysis: ClipAnalysis, opts: FindOptions = {}): ViralClip[] {
+  const { minSeconds = 15, maxSeconds = 60, maxClips = 10 } = opts;
+  const moments = findMoments(clipId, duration, analysis, {
+    minSeconds: Math.min(minSeconds, duration),
+    maxSeconds,
+    maxMoments: maxClips,
+  });
+  const clips = moments.map((m, i) => {
+    const sig = m.signals;
+    const scores: ViralScores = {
+      hook: clamp(sig.hook * 100),
+      curiosity: clamp(sig.build * 100),
+      emotion: clamp(sig.peak * 100),
+      value: clamp(sig.intensity * 100),
+      pacing: clamp(sig.pacing * 100),
     };
-    const start = i * 0.5;
-    candidates.push({
-      id: `${clipId}:s${i}`,
+    const reasons = [
+      sig.hook >= 0.7 && "Opens on action",
+      m.arc && sig.peak >= 0.85 && "Builds to a big moment",
+      sig.pacing >= 0.6 && "Fast cuts hold attention",
+      sig.intensity >= 0.65 && "Intense from start to finish",
+      m.clean && "Starts and ends on a scene change",
+    ].filter((r): r is string => Boolean(r));
+    return {
+      id: `${clipId}:m${Math.round(m.start * 2)}`,
       clipId,
-      start,
-      end: Math.min(duration, start + length),
-      score: overallScore(sub),
-      scores: sub,
-      hook: "Strong opening moment",
-      reasons: [opening > 0.6 ? "Starts with energy" : "Lively stretch", peak > 0.8 ? "Big peak moment" : "Steady action"],
-      title: "Highlight",
-      caption: "",
-      hashtags: ["#reels", "#shorts"],
-    });
-  }
-  const picked: ViralClip[] = [];
-  for (const c of candidates.sort((a, b) => b.score - a.score)) {
-    if (picked.length >= maxClips) break;
-    if (picked.some((p) => c.start < p.end && p.start < c.end)) continue;
-    picked.push(c);
-  }
-  return picked.map((c, i) => ({ ...c, title: `Highlight ${i + 1}` }));
+      start: m.start,
+      end: m.end,
+      score: overallScore(scores),
+      scores,
+      hook: `Peaks ${mmss(m.peak - m.start)} in`,
+      reasons: reasons.length ? reasons : ["Steady energy"],
+      title: `Scene ${i + 1} · ${mmss(m.start)}`,
+      caption: sig.build >= 0.6 ? "Wait for it… 🔥" : "This scene 🔥",
+      hashtags: ["#shorts", "#reels", "#fyp"],
+    };
+  });
+  // Only scenes that stand out: padding the list with ordinary moments makes every pick look random.
+  const bar = Math.max(35, (clips[0]?.score ?? 0) * 0.65);
+  return clips.filter((c) => c.score >= bar);
 }

@@ -69,14 +69,24 @@ describe("findViralClips", () => {
   });
 });
 
-describe("findClipsBySound", () => {
-  it("picks the most energetic stretch when there's no speech", async () => {
-    const { findClipsBySound } = await import("./viral");
-    const scores = [...Array(120).fill(0.1), ...Array(40).fill(0.95), ...Array(120).fill(0.1)];
-    const clips = findClipsBySound("a", 140, scores, { minSeconds: 15, maxSeconds: 25, maxClips: 2 });
-    expect(clips[0].start).toBeGreaterThanOrEqual(54);
-    expect(clips[0].start).toBeLessThanOrEqual(62);
-    expect(clips[0].end - clips[0].start).toBe(20);
-    expect(clips[0].title).toBe("Highlight 1");
+describe("findClipsByScene", () => {
+  it("turns the most exciting scene into a clip card", async () => {
+    const { findClipsByScene } = await import("./viral");
+    const quiet = 120;
+    const loud = 40;
+    const bins = quiet + loud + quiet;
+    const analysis = {
+      loudness: Array.from({ length: bins }, (_, i) => (i >= quiet && i < quiet + loud ? -18 : -45 + (i % 7))),
+      motion: Array.from({ length: bins }, (_, i) => (i >= quiet && i < quiet + loud ? 8 : 0.5)),
+      cuts: Array(bins).fill(0),
+      hasAudio: true,
+    };
+    const clips = findClipsByScene("a", bins / 2, analysis, { minSeconds: 15, maxSeconds: 25, maxClips: 2 });
+    expect(clips[0].start).toBeGreaterThanOrEqual(50);
+    expect(clips[0].end).toBeLessThanOrEqual(90);
+    expect(clips[0].end - clips[0].start).toBeGreaterThanOrEqual(15);
+    expect(clips[0].end - clips[0].start).toBeLessThanOrEqual(25);
+    expect(clips[0].title).toMatch(/^Scene 1/);
+    expect(clips[0].scores.emotion).toBeGreaterThan(80);
   });
 });
