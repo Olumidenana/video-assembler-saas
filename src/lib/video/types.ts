@@ -38,4 +38,6 @@ export interface ExportItem {
   info: MediaInfo;
   start: number;
   end: number;
+  /** Cut in from a white flash (after a flash-forward intro). */
+  flashIn?: boolean;
 }

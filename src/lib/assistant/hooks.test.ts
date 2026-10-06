@@ -32,4 +32,13 @@ describe("hook library", () => {
   it("keeps every hook short enough to read in a second", () => {
     for (const line of Object.values(HOOK_LIBRARY).flat()) expect(line.split(/\s+/).length).toBeLessThanOrEqual(6);
   });
+
+  it("leads with the audience's favourite technique when the clip's own isn't one of theirs", () => {
+    // A slow clip reads as "payoff", which isn't in this audience's top three.
+    const [hook] = pickHooks([{ scores: scores(), title: "" }], "scenes", ["stakes", "interrupt", "curiosity", "payoff"]);
+    expect(HOOK_LIBRARY.stakes).toContain(hook);
+    // A clip whose shape is in the top three keeps its own technique.
+    const [own] = pickHooks([{ scores: scores({ pacing: 80 }), title: "" }], "scenes", ["stakes", "interrupt", "curiosity", "payoff"]);
+    expect(HOOK_LIBRARY.interrupt).toContain(own);
+  });
 });

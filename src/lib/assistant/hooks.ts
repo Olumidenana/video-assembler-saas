@@ -53,7 +53,12 @@ export function hookFamily(scores: ViralClip["scores"]): HookFamily {
  * One hook per clip, never repeated within a pack. Talking clips with a short,
  * punchy opening line use their own words (the most honest hook there is).
  */
-export function pickHooks(clips: Pick<ViralClip, "scores" | "title">[], basis: "transcript" | "scenes"): string[] {
+export function pickHooks(
+  clips: Pick<ViralClip, "scores" | "title">[],
+  basis: "transcript" | "scenes",
+  /** Techniques that suit the audience, best first (see playbooks). */
+  preferred: HookFamily[] = ["curiosity", "stakes", "interrupt", "payoff"],
+): string[] {
   const used = new Set<string>();
   return clips.map((clip) => {
     if (basis === "transcript") {
@@ -63,8 +68,10 @@ export function pickHooks(clips: Pick<ViralClip, "scores" | "title">[], basis: "
         return clip.title;
       }
     }
+    // The clip's own shape decides, if it's a technique this audience responds to; else the audience's favourite.
     const family = hookFamily(clip.scores);
-    const order: HookFamily[] = [family, ...(["curiosity", "stakes", "interrupt", "payoff"] as const).filter((f) => f !== family)];
+    const first = preferred.slice(0, 3).includes(family) ? family : preferred[0];
+    const order: HookFamily[] = [first, ...preferred.filter((f) => f !== first)];
     for (const f of order) {
       const line = HOOK_LIBRARY[f].find((l) => !used.has(l));
       if (line) {
@@ -76,9 +83,3 @@ export function pickHooks(clips: Pick<ViralClip, "scores" | "title">[], basis: "
   });
 }
 
-/** The closing call to action: a reason to follow, which is what grows an account. */
-export const OUTRO_LINES = {
-  edit: "Follow for part 2",
-  podcast: "Follow for more like this",
-  story: "Follow for part 2",
-} as const;

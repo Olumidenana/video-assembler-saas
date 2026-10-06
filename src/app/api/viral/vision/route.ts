@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   if (!viewer.user) return NextResponse.json({ error: "sign_in" }, { status: 401 });
   if (!PLAN_LIMITS[viewer.plan].aiVision) return NextResponse.json({ error: "upgrade" }, { status: 402 });
 
-  const body = (await request.json().catch(() => null)) as { clips?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { clips?: unknown; audience?: unknown } | null;
   const candidates: VisionCandidate[] = (Array.isArray(body?.clips) ? body.clips : []).slice(0, MAX_CLIPS).flatMap(
     (c: { id?: unknown; start?: unknown; end?: unknown; notes?: unknown; frames?: unknown }) => {
       if (typeof c?.id !== "string" || typeof c.start !== "number" || typeof c.end !== "number" || !(c.end > c.start)) return [];
@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
     },
   );
   if (candidates.length === 0) return NextResponse.json({ error: "no_frames" }, { status: 400 });
+  const audience = typeof body?.audience === "string" ? body.audience.slice(0, 400) : undefined;
 
   const { data: allowed, error } = await createAdminClient().rpc("consume_ai_request", {
     p_user_id: viewer.user.id,
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
   if (!allowed) return NextResponse.json({ error: "limit" }, { status: 429 });
 
   try {
-    return NextResponse.json({ clips: await judgeClipsVisually(candidates) });
+    return NextResponse.json({ clips: await judgeClipsVisually(candidates, audience) });
   } catch (err) {
     if (err instanceof AssistantError) return NextResponse.json({ error: "assistant", message: err.message }, { status: 422 });
     if (err instanceof Anthropic.RateLimitError) return NextResponse.json({ error: "busy" }, { status: 503 });

@@ -38,6 +38,8 @@ export interface ExportOptions {
   progressBar?: boolean;
   /** Platform loudness (-14 LUFS). */
   normalize?: boolean;
+  /** Seconds of end card after the clip (last frame held and dimmed). */
+  endCard?: number;
   /** Background music for one render's items (composed to fit them), or null for none. */
   music?: (items: ExportItem[], duration: number) => Promise<MusicTrack | null>;
   onProgress?: (ratio: number) => void;
@@ -96,7 +98,8 @@ async function render(
       : {};
   if (ass) overlayFiles[OVERLAY_FILES.captions] = ass;
   if (method === "reencode" && options.logo) overlayFiles[OVERLAY_FILES.logo] = options.logo;
-  const track = method === "reencode" && options.music ? await options.music(items, totalDuration) : null;
+  const endCard = method === "reencode" ? (options.endCard ?? 0) : 0;
+  const track = method === "reencode" && options.music ? await options.music(items, totalDuration + endCard) : null;
   const music: MusicMix | undefined = track
     ? { path: `${OVERLAY_FILES.music}.${track.ext}`, volume: track.volume, original: track.original, duck: track.duck }
     : undefined;
@@ -121,9 +124,10 @@ async function render(
             music,
             progressBar: options.progressBar,
             normalize: options.normalize,
+            endCard,
           }),
           output,
-          { totalDuration, onProgress },
+          { totalDuration: totalDuration + endCard, onProgress },
           overlayFiles,
         );
 

@@ -101,6 +101,18 @@ describe("findMoments on an episode", () => {
   });
 });
 
+describe("audience weights", () => {
+  it("change what ranks first, and the anime playbook still puts the fight on top", async () => {
+    const { playbook } = await import("@/lib/assistant/playbooks");
+    const a = episode();
+    const anime = playbook("anime");
+    const [best] = findClipsByScene("ep", 1500, a, { minSeconds: anime.range.min, maxSeconds: anime.range.max, maxClips: 5, weights: anime.weights });
+    expect(overlap(best, 900, 960)).toBeGreaterThanOrEqual(12);
+    const hookOnly = findClipsByScene("ep", 1500, a, { minSeconds: 15, maxSeconds: 30, maxClips: 5, weights: { hook: 1, curiosity: 0, emotion: 0, value: 0, pacing: 0 } });
+    expect(hookOnly[0].score).not.toBe(best.score);
+  });
+});
+
 describe("pickHighlights on an episode", () => {
   it("builds a 30 s reel from a few whole scenes, not scattered fragments", () => {
     const picks = pickHighlights([{ clipId: "ep", duration: 1500, analysis: episode() }], { targetSeconds: 30 });

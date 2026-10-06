@@ -158,6 +158,18 @@ describe("AI Vision", () => {
     expect(content[2]).toEqual({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: jpeg } });
   });
 
+  it("tells the reviewer who the posts are for", async () => {
+    const { POST: vision } = await import("@/app/api/viral/vision/route");
+    viewer = { user: { id: "u1" }, plan: "studio" };
+    create.mockResolvedValue(reply({ clips: [{ id: "a", score: 80, what: "x", why: "y", hook: "z", title: "t", caption: "c", hashtags: [], keep: true }] }));
+    const audience = "Anime fans share fights and power-ups. " + "x".repeat(800);
+    const res = await vision(new NextRequest("http://x/api/viral/vision", { method: "POST", body: JSON.stringify({ clips: [clip("a")], audience }) }));
+    expect(res.status).toBe(200);
+    const intro = create.mock.calls.at(-1)![0].messages[0].content[0].text as string;
+    expect(intro).toContain("Anime fans share fights and power-ups.");
+    expect(intro.length).toBeLessThan(600);
+  });
+
   it("is Studio-only and charges 10 AI credits", async () => {
     const { POST: vision } = await import("@/app/api/viral/vision/route");
     const req = (clips: unknown) => new NextRequest("http://x/api/viral/vision", { method: "POST", body: JSON.stringify({ clips }) });

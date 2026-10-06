@@ -168,6 +168,22 @@ describe("command builders", () => {
     expect(g2.split("[aout]")).toHaveLength(2);
   });
 
+  it("cuts in with a white flash, then holds and dims the last frame for an end card", () => {
+    const args = buildReencodeArgs([item({ start: 0, end: 2, flashIn: false }), item({ clipId: "b", start: 0, end: 10, flashIn: true })], { width: 720, height: 1280, fps: 30 }, "/out.mp4", {
+      endCard: 1.6,
+      progressBar: true,
+      music: { path: "/music.wav", volume: 0.6, original: 1, duck: true },
+    });
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    expect(graph.split("fade=t=in:st=0:d=0.3:color=white")).toHaveLength(2);
+    expect(graph).toContain("[vcat]tpad=stop_mode=clone:stop_duration=1.600,drawbox=");
+    expect(graph).toContain("enable='gte(t,12.000)'[vjoined]");
+    expect(graph).toContain("[acat]apad=pad_dur=1.600[ajoined]");
+    // The bar and the music run to the end of the card.
+    expect(graph).toContain("d=13.600[barsrc]");
+    expect(graph).toContain("atrim=end=13.600");
+  });
+
   it("plays music alone when the original sound is off", () => {
     const args = buildReencodeArgs([item()], { width: 1280, height: 720, fps: 30 }, "/out.mp4", {
       music: { path: "/music.wav", volume: 1, original: 0, duck: true },

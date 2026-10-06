@@ -185,10 +185,21 @@ are built from a few whole moments. Auto picks Scenes for videos with 6+ cuts a 
 ## Clip Pack and AI Vision
 
 **Clip Pack** (`src/app/editor/clip-pack.tsx`, `makeClipPack` in the editor) is the one-button
-workflow: pick a style (Anime & gaming edit, Podcast & talking, Story/vlog/skit) and a number of
-clips (Free 1, Pro 3, Studio 8). It finds the moments, applies the style's export settings (9:16,
-captions, hook title, progress bar, music), exports each clip as its own file and adds
-`post-kit.txt` with titles, captions and hashtags.
+workflow: pick who the clips are for and a number of clips (Free 1, Pro 3, Studio 8). It finds the
+moments, exports each as a finished 9:16 post and adds `post-kit.txt` with titles, captions and
+hashtags.
+
+**Audience playbooks** (`src/lib/assistant/playbooks.ts`: Anime, Gaming, Sports, Podcast &
+interview, Comedy & skits, Sermon & motivation, Vlog & story) decide everything per audience: how
+the scoring signals are weighted (anime leans on the peak and pacing, podcasts on the opening line),
+clip length (comedy 18-28 s), which hook techniques lead, music per clip from its shape (anime:
+phonk for fast fights, a cinematic swell for slow builds; none on podcasts), captions, whether to
+open cold, and the closing call to action. AI Vision is told the audience too.
+
+Each post is produced: a 1.8 s flash-forward of the peak (not for comedy, where it would spoil the
+punchline), a white flash cut into the clip, the hook popping in, a "PART n" badge, a progress bar,
+music with its drop on the clip's biggest moment, then a 1.6 s end card (last frame held and
+dimmed, music carrying on) with the call to action, loudness-normalised to -14 LUFS.
 
 **AI Vision** (Studio, `POST /api/viral/vision`, `judgeClipsVisually`): FFmpeg grabs four 384px
 JPEG stills from each top candidate (two per command; more exhausts the multi-threaded core's

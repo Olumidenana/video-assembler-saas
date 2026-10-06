@@ -17,12 +17,13 @@ import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/tim
 import { buildAss, type Word, wordsForOutput } from "@/lib/video/captions";
 import { cancelTranscription, migrateSpeech, speechKey, transcribeClip } from "@/lib/video/transcribe";
 import { cutsPerMinute, outputPeak } from "@/lib/video/highlights";
-import { composeWav } from "@/lib/audio/music";
+import { composeWav, type MusicStyle } from "@/lib/audio/music";
 import { findClipsByScene, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
-import { ClipPack, type PackPreset } from "./clip-pack";
-import { OUTRO_LINES, pickHooks } from "@/lib/assistant/hooks";
+import { ClipPack } from "./clip-pack";
+import type { Playbook } from "@/lib/assistant/playbooks";
+import { pickHooks } from "@/lib/assistant/hooks";
 // Type-only (erased at build time), so the server-only module never reaches the browser.
 import type { VisionVerdict } from "@/lib/assistant/claude";
 import { TaskBanner } from "./task-banner";
@@ -504,7 +505,12 @@ export function Editor({ plan }: { plan: PlanId }) {
     setTask(null);
   }
 
-  async function findViral(range: ViralRange, kind: VideoKind = "auto"): Promise<{ clips: ViralClip[]; basis: "transcript" | "scenes" } | null> {
+  async function findViral(
+    range: ViralRange,
+    kind: VideoKind = "auto",
+    /** What the audience rewards most (Clip Pack playbooks); default weights otherwise. */
+    weights?: ViralClip["scores"],
+  ): Promise<{ clips: ViralClip[]; basis: "transcript" | "scenes" } | null> {
     const ids = [...new Set(timeline.segments.map((s) => s.clipId))];
     setViral(null);
     try {
@@ -530,7 +536,7 @@ export function Editor({ plan }: { plan: PlanId }) {
         speech = false; // Speech model unavailable (offline, old browser): fall back to scenes.
       }
       setTask({ label: "Scoring moments…", progress: null });
-      const opts = { minSeconds: range.min, maxSeconds: range.max, maxClips: 10 };
+      const opts = { minSeconds: range.min, maxSeconds: range.max, maxClips: 10, weights };
       let basis: "transcript" | "scenes" = "scenes";
       const found = ids.flatMap((id) => {
         const words = speech && !byScenes(id) ? (transcripts.current.get(id) ?? []) : [];
@@ -649,7 +655,7 @@ export function Editor({ plan }: { plan: PlanId }) {
    * title, caption, reasons and hook. Null if it isn't available; the caller
    * carries on with the built-in picks.
    */
-  async function reviewWithVision(candidates: ViralClip[]): Promise<{ clips: ViralClip[]; hooks: Map<string, string> } | null> {
+  async function reviewWithVision(candidates: ViralClip[], audience?: string): Promise<{ clips: ViralClip[]; hooks: Map<string, string> } | null> {
     const label = "AI Vision is looking at your clips…";
     setTask({ label, progress: 0 });
     try {
@@ -670,7 +676,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       const res = await fetch("/api/viral/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clips: payload }),
+        body: JSON.stringify({ clips: payload, audience }),
       });
       const body = (await res.json().catch(() => null)) as { clips?: VisionVerdict[]; error?: string } | null;
       if (!res.ok || !body?.clips) {
@@ -720,12 +726,18 @@ export function Editor({ plan }: { plan: PlanId }) {
   }
 
   /** Clip Pack: find the best moments, optionally let AI Vision judge them, and export finished posts. */
-  async function makeClipPack(preset: PackPreset, count: number, useVision: boolean) {
-    const range: ViralRange = { min: preset.range.min, max: preset.range.max, label: preset.range.label };
-    const found = await findViral(range, preset.kind);
+  /**
+   * Clip Pack: picks the moments this audience rewards (playbook weights and
+   * lengths), optionally lets AI Vision judge them, then exports finished
+   * posts: flash-forward intro with a flash cut (where it suits the audience),
+   * hook, PART badge, captions, music chosen per clip, and an end card.
+   */
+  async function makeClipPack(pb: Playbook, count: number, useVision: boolean) {
+    const range: ViralRange = { min: pb.range.min, max: pb.range.max, label: pb.range.label };
+    const found = await findViral(range, pb.kind, pb.weights);
     if (!found) return;
     if (found.clips.length === 0) {
-      setErrors((e) => [...e, "No clips stood out in that length range. Try another pack style or a longer video."]);
+      setErrors((e) => [...e, "No clips stood out in that length range. Try another category or a longer video."]);
       return;
     }
     const wanted = Math.min(count, limits.packClips);
@@ -733,7 +745,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     let hooks = new Map<string, string>();
     if (useVision && limits.aiVision) {
       try {
-        const reviewed = await reviewWithVision(found.clips.slice(0, Math.min(8, wanted + 3)));
+        const reviewed = await reviewWithVision(found.clips.slice(0, Math.min(8, wanted + 3)), pb.audience);
         if (reviewed) {
           picks = reviewed.clips;
           hooks = reviewed.hooks;
@@ -744,39 +756,43 @@ export function Editor({ plan }: { plan: PlanId }) {
       }
     }
     picks = picks.slice(0, wanted);
-    // Hooks AI Vision didn't write come from the hook library (curiosity gap,
-    // stakes, pattern interrupt, payoff), matched to each clip and never repeated.
-    const library = pickHooks(picks, found.basis);
+    // Hooks AI Vision didn't write come from the hook library, in the techniques this audience responds to.
+    const library = pickHooks(picks, found.basis, pb.hooks);
     picks.forEach((c, i) => {
       if (!hooks.has(itemKey(c))) hooks.set(itemKey(c), library[i]);
     });
 
-    // Flash-forward cold open: ~1.8 s of the clip's peak first, then the clip
-    // from its build-up. Viewers decide in the first second and a half, so they
-    // see the payoff up front and stay to see how it happens.
+    // Flash-forward cold open (~1.8 s of the peak, then a white flash cut into
+    // the build-up) for audiences where seeing the payoff first hooks them.
+    // Never for comedy: a punchline shown first is a punchline spoiled.
     const TEASER = 1.8;
     const drops = new Map<string, number>();
-    const groups = picks.map((c) => {
+    const musicStyles = new Map<string, MusicStyle | "none">();
+    const badges = new Map<string, string>();
+    const groups = picks.map((c, i) => {
       const info = timeline.clips[c.clipId].info;
       const main = { clipId: c.clipId, info, start: c.start, end: c.end };
       const peak = c.peak ?? c.start + outputPeak([main], analyses.current);
-      const long = c.end - c.start >= 12 && peak - c.start > TEASER + 2;
+      const intro = pb.coldOpen && c.end - c.start >= 12 && peak - c.start > TEASER + 2;
       const teaserStart = Math.min(Math.max(c.start, peak - TEASER / 2), c.end - TEASER);
-      const group = long ? [{ ...main, start: teaserStart, end: teaserStart + TEASER }, main] : [main];
+      const group = intro ? [{ ...main, start: teaserStart, end: teaserStart + TEASER }, { ...main, flashIn: true }] : [main];
       // The beat drops when the real peak comes round again, after the intro.
-      drops.set(itemKey(main), (long ? TEASER : 0) + (peak - c.start));
+      drops.set(itemKey(main), (intro ? TEASER : 0) + (peak - c.start));
+      musicStyles.set(itemKey(main), pb.music(c.scores));
+      badges.set(itemKey(main), `PART ${i + 1}`);
       return group;
     });
 
+    const firstMusic = pb.music(picks[0].scores);
     const packSettings: ExportSettings = {
       ...settings,
       aspect: "9:16",
       fit: "blur",
-      captions: preset.captions,
-      captionStyle: limits.captionStyles === "all" ? preset.captionStyle : "clean",
+      captions: pb.captions,
+      captionStyle: limits.captionStyles === "all" ? pb.captionStyle : "clean",
       hook: { on: true, text: "" },
       progressBar: true,
-      music: preset.music === "none" ? { ...settings.music, style: "none" } : { ...settings.music, style: preset.music, volume: preset.id === "story" ? 0.35 : 0.6 },
+      music: firstMusic === "none" ? { ...settings.music, style: "none" } : { ...settings.music, style: firstMusic, volume: pb.musicVolume },
     };
     setSettings(packSettings);
     const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
@@ -784,7 +800,8 @@ export function Editor({ plan }: { plan: PlanId }) {
     const titleOf = (c: ViralClip, i: number) => (/^Scene \d/.test(c.title) ? library[i] : c.title);
     const shareTexts = picks.map((c) => [c.caption.trim(), c.hashtags.join(" ")].filter(Boolean).join("\n\n"));
     const postKit = [
-      `Clip Pack: ${preset.label} (${picks.length} clip${picks.length === 1 ? "" : "s"})`,
+      `Clip Pack: ${pb.label} (${picks.length} clip${picks.length === 1 ? "" : "s"})`,
+      `Made for: ${pb.audience}`,
       "",
       ...picks.flatMap((c, i) => [
         `PART ${String(i + 1).padStart(2, "0")} · ${timeline.clips[c.clipId]?.file.name ?? "video"} ${mmss(c.start)}-${mmss(c.end)} · score ${c.score}`,
@@ -795,13 +812,13 @@ export function Editor({ plan }: { plan: PlanId }) {
         ...(c.reasons.length ? [`Why: ${c.reasons.join("; ")}`] : []),
         "",
       ]),
-      "Tip: post 1-2 parts a day, and pin a comment asking which part they want next.",
+      "Tip: post 1-2 parts a day in order, and pin a comment asking which part they want next.",
     ].join("\n");
     document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
     await startExport(
       picks.map((c) => ({ clipId: c.clipId, info: timeline.clips[c.clipId].info, start: c.start, end: c.end })),
       "parts",
-      { settings: packSettings, hooks, postKit, groups, drops, outro: OUTRO_LINES[preset.id], shareTexts, normalize: true },
+      { settings: packSettings, hooks, postKit, groups, drops, musicStyles, badges, endCard: 1.6, outro: pb.outro, shareTexts, normalize: true },
     );
   }
 
@@ -828,6 +845,12 @@ export function Editor({ plan }: { plan: PlanId }) {
       shareTexts?: string[];
       /** Even out loudness for the platforms. */
       normalize?: boolean;
+      /** Music style per part (keyed like `hooks`), chosen from each clip's shape. */
+      musicStyles?: Map<string, MusicStyle | "none">;
+      /** Series label per part ("PART 1"). */
+      badges?: Map<string, string>;
+      /** Seconds of end card (last frame held and dimmed) for the call to action. */
+      endCard?: number;
     } = {},
   ) {
     let s = run.settings ?? settings;
@@ -859,7 +882,8 @@ export function Editor({ plan }: { plan: PlanId }) {
     }
     const music = s.music;
     const composed = music.style !== "none" && music.style !== "own" ? music.style : null;
-    if (composed) {
+    const anyPartMusic = run.musicStyles && [...run.musicStyles.values()].some((m) => m !== "none");
+    if (composed || anyPartMusic) {
       // The drop is lined up with the biggest moment, so every clip needs its analysis.
       try {
         for (const id of new Set(items.map((i) => i.clipId))) {
@@ -883,28 +907,36 @@ export function Editor({ plan }: { plan: PlanId }) {
       watermark: limits.watermark,
       logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
       captions:
-        s.captions || s.hook.on || run.outro
+        s.captions || s.hook.on || run.outro || run.badges
           ? (renderItems: ExportItem[], canvas: Parameters<typeof buildAss>[2]) => {
               const words = s.captions
                 ? wordsForOutput(renderItems, Object.fromEntries(transcripts.current), limits.captionSeconds)
                 : [];
               const hookText = s.hook.on ? hookFor(renderItems, s, run.hooks) : null;
               const total = renderItems.reduce((sum, i) => sum + i.end - i.start, 0);
-              const outro = run.outro && total > 8 ? { text: run.outro, start: total - 1.6, end: total } : undefined;
-              if (!words.length && !hookText && !outro) return null;
-              return buildAss(words, style, canvas, { ...(hookText ? { hook: { text: hookText, seconds: 3 } } : {}), outro });
+              const card = run.endCard ?? 0;
+              // On the end card when there is one; else over the last moments of the clip.
+              const outro = run.outro && total > 8 ? { text: run.outro, start: card ? total - 0.2 : total - 1.6, end: total + card } : undefined;
+              const badgeText = run.badges?.get(itemKey(renderItems[renderItems.length - 1]));
+              const badge = badgeText ? { text: badgeText, end: total } : undefined;
+              if (!words.length && !hookText && !outro && !badge) return null;
+              return buildAss(words, style, canvas, { ...(hookText ? { hook: { text: hookText, seconds: 3 } } : {}), outro, badge });
             }
           : undefined,
       progressBar: s.progressBar,
       normalize: run.normalize,
+      endCard: run.endCard,
       music:
-        composed || (music.style === "own" && ownTrack)
+        composed || anyPartMusic || (music.style === "own" && ownTrack)
           ? async (renderItems: ExportItem[], duration: number) => {
               const mix = { volume: music.volume, original: music.original, duck: music.duck };
-              if (!composed) return ownTrack ? { ...mix, bytes: ownTrack.bytes, ext: ownTrack.ext } : null;
+              const partStyle = run.musicStyles?.get(itemKey(renderItems[renderItems.length - 1]));
+              if (partStyle === "none") return null;
+              const style = partStyle ?? composed;
+              if (!style) return music.style === "own" && ownTrack ? { ...mix, bytes: ownTrack.bytes, ext: ownTrack.ext } : null;
               const seed = Math.round(renderItems[0].start * 10) + renderItems.length;
               const drop = run.drops?.get(itemKey(renderItems[renderItems.length - 1])) ?? outputPeak(renderItems, analyses.current);
-              return { ...mix, bytes: await composeWav(composed, duration, drop, seed), ext: "wav" };
+              return { ...mix, bytes: await composeWav(style, duration, drop, seed), ext: "wav" };
             }
           : undefined,
       onProgress: (progress: number) => setExportState({ status: "running", progress }),

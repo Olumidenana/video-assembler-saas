@@ -81,3 +81,11 @@ describe("outro", () => {
     expect(ass).toMatch(/Hook,,0,0,0,,\{\\fad\(60,250\)\\fscx70\\fscy70\\t\(0,180,/);
   });
 });
+
+describe("part badge", () => {
+  it("labels the part top-left until the clip ends", () => {
+    const ass = buildAss([], "clean", { width: 720, height: 1280, fps: 30 }, { badge: { text: "PART 2", end: 30 } });
+    expect(ass).toContain("Style: Badge,Montserrat ExtraBold,");
+    expect(ass).toContain("Dialogue: 0,0:00:00.00,0:00:30.00,Badge,,0,0,0,,PART 2");
+  });
+});

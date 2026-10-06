@@ -138,6 +138,8 @@ export interface Overlays {
   progressBar?: boolean;
   /** Even out loudness to -14 LUFS, the level TikTok, Reels and Shorts play at. */
   normalize?: boolean;
+  /** Seconds of end card: the last frame holds, dims, and the sound plays out under the call to action. */
+  endCard?: number;
 }
 
 export interface MusicMix {
@@ -152,8 +154,9 @@ export interface MusicMix {
 }
 
 /** Fits one input onto the canvas: letterbox, fill-and-crop, or fit over a blurred copy. */
-function fitFilter(input: string, out: string, W: number, H: number, fps: number, fit: Fit | "letterbox"): string {
-  const tail = `setsar=1,fps=${fps},format=yuv420p,setpts=PTS-STARTPTS[${out}]`;
+function fitFilter(input: string, out: string, W: number, H: number, fps: number, fit: Fit | "letterbox", flashIn = false): string {
+  // A flash cut: the segment fades in from white, the classic edit transition after a cold open.
+  const tail = `setsar=1,fps=${fps},format=yuv420p,setpts=PTS-STARTPTS${flashIn ? ",fade=t=in:st=0:d=0.3:color=white" : ""}[${out}]`;
   if (fit === "crop") {
     return `${input}scale=${W}:${H}:force_original_aspect_ratio=increase:force_divisible_by=2,crop=${W}:${H},${tail}`;
   }
@@ -194,7 +197,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
       "-ss", secs(item.start), "-t", duration, "-i", clipPath(item.clipId),
     );
 
-    filters.push(fitFilter(`[${i}:v:0]`, `v${i}`, W, H, fps, overlays.fit ?? "letterbox"));
+    filters.push(fitFilter(`[${i}:v:0]`, `v${i}`, W, H, fps, overlays.fit ?? "letterbox", item.flashIn));
     filters.push(
       item.info.audioCodec
         ? `[${i}:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
@@ -204,9 +207,21 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     pairs.push(`[v${i}][a${i}]`);
   });
 
-  const hasPost = overlays.watermark || overlays.logo || overlays.captions || overlays.progressBar;
+  const endCard = overlays.endCard && overlays.endCard > 0 ? overlays.endCard : 0;
+  const hasPost = overlays.watermark || overlays.logo || overlays.captions || overlays.progressBar || endCard > 0;
   const music = overlays.music;
-  filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[${hasPost ? "vjoined" : "vout"}][${music ? "ajoined" : "aout"}]`);
+  const clipsTotal = items.reduce((sum, i) => sum + i.end - i.start, 0);
+  const vJoined = endCard ? "vcat" : hasPost ? "vjoined" : "vout";
+  const aJoined = endCard ? "acat" : music ? "ajoined" : "aout";
+  filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[${vJoined}][${aJoined}]`);
+  if (endCard) {
+    // Hold the last frame and dim it; silence-pad the sound (music, if any, carries on over it).
+    filters.push(
+      `[vcat]tpad=stop_mode=clone:stop_duration=${secs(endCard)},` +
+        `drawbox=x=0:y=0:w=iw:h=ih:color=black@0.55:t=fill:enable='gte(t,${secs(clipsTotal)})'[vjoined]`,
+      `[acat]apad=pad_dur=${secs(endCard)}[${music ? "ajoined" : "aout"}]`,
+    );
+  }
   // Extra inputs (logo, music) come after the clips, in the order they're added.
   let nextInput = items.length;
 
@@ -239,7 +254,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     }
     if (overlays.progressBar) {
       // A bar the width of the frame slides in from the left over the whole video.
-      const total = items.reduce((sum, i) => sum + i.end - i.start, 0);
+      const total = clipsTotal + endCard;
       const h = Math.max(4, Math.round(Math.min(W, H) * 0.008));
       filters.push(`color=c=0x8b7bff:s=${W}x${h}:r=${fps}:d=${secs(total)}[barsrc]`);
       filters.push(`[${current}][barsrc]overlay=x='-W+W*t/${secs(total)}':y=H-h:eof_action=pass[vbar]`);
@@ -249,7 +264,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
   }
 
   if (music) {
-    const total = secs(items.reduce((sum, i) => sum + i.end - i.start, 0));
+    const total = secs(clipsTotal + endCard);
     inputs.push("-i", music.path);
     const musicInput = nextInput++;
     const fade = Math.min(1.5, Number(total) / 4).toFixed(2);

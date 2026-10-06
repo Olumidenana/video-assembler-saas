@@ -283,10 +283,13 @@ const VISION_SCHEMA = {
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
 /** AI Vision: Claude looks at a few frames from each candidate and judges and writes it. */
-export async function judgeClipsVisually(candidates: VisionCandidate[]): Promise<VisionVerdict[]> {
+export async function judgeClipsVisually(candidates: VisionCandidate[], audience?: string): Promise<VisionVerdict[]> {
   const client = new Anthropic({ timeout: 90_000, maxRetries: 1 });
+  const who = audience?.trim()
+    ? ` These posts are for this audience; judge, pick and write for what they reward: ${audience.trim()}`
+    : "";
   const content: Anthropic.Beta.BetaContentBlockParam[] = [
-    { type: "text", text: `${candidates.length} candidate clips follow. Judge each one.` },
+    { type: "text", text: `${candidates.length} candidate clips follow. Judge each one.${who}` },
   ];
   for (const c of candidates) {
     content.push({

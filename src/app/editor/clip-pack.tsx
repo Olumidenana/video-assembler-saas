@@ -3,59 +3,8 @@
 import { useState } from "react";
 import { HardLink } from "@/components/hard-link";
 import { LockIcon, SparkIcon } from "@/components/icons";
-import type { MusicStyle } from "@/lib/audio/music";
-import type { CaptionStyleId } from "@/lib/video/captions";
+import { PLAYBOOKS, type Playbook } from "@/lib/assistant/playbooks";
 import type { PlanLimits } from "@/lib/plans";
-import type { VideoKind } from "./viral-panel";
-
-/** A ready-made recipe: what to look for and how to package it. */
-export interface PackPreset {
-  id: "edit" | "podcast" | "story";
-  label: string;
-  emoji: string;
-  hint: string;
-  kind: VideoKind;
-  range: { min: number; max: number; label: string };
-  captions: boolean;
-  captionStyle: CaptionStyleId;
-  music: MusicStyle | "none";
-}
-
-export const PACK_PRESETS: PackPreset[] = [
-  {
-    id: "edit",
-    label: "Anime & gaming edit",
-    emoji: "⚔️",
-    hint: "Fights, reveals and hype moments, with a phonk drop on the peak",
-    kind: "scenes",
-    range: { min: 15, max: 30, label: "15–30s" },
-    captions: false,
-    captionStyle: "bold-pop",
-    music: "phonk",
-  },
-  {
-    id: "podcast",
-    label: "Podcast & talking",
-    emoji: "🎙️",
-    hint: "The strongest takes, with word-by-word captions",
-    kind: "talking",
-    range: { min: 30, max: 60, label: "30–60s" },
-    captions: true,
-    captionStyle: "bold-pop",
-    music: "none",
-  },
-  {
-    id: "story",
-    label: "Story, vlog & skit",
-    emoji: "🎬",
-    hint: "Moments that land, with captions and a soft lo-fi bed",
-    kind: "auto",
-    range: { min: 15, max: 45, label: "15–45s" },
-    captions: true,
-    captionStyle: "clean",
-    music: "lofi",
-  },
-];
 
 /**
  * The one-button workflow: find the best moments, (Studio) let AI Vision judge
@@ -68,9 +17,9 @@ export function ClipPack({
 }: {
   limits: PlanLimits;
   busy: boolean;
-  onMake: (preset: PackPreset, count: number, vision: boolean) => void;
+  onMake: (playbook: Playbook, count: number, vision: boolean) => void;
 }) {
-  const [preset, setPreset] = useState(PACK_PRESETS[0]);
+  const [preset, setPreset] = useState(PLAYBOOKS[0]);
   const [count, setCount] = useState(Math.min(3, limits.packClips));
   const [vision, setVision] = useState(limits.aiVision);
   const counts = [1, 3, 5, 8].filter((n) => n <= limits.packClips);
@@ -95,8 +44,9 @@ export function ClipPack({
           </div>
         </div>
 
-        <div className="relative grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Pack style">
-          {PACK_PRESETS.map((p) => (
+        <p className="relative -mb-2 text-xs font-medium uppercase tracking-wide text-subtle">Who is it for?</p>
+        <div className="relative grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Audience">
+          {PLAYBOOKS.map((p) => (
             <button
               key={p.id}
               type="button"
@@ -110,10 +60,13 @@ export function ClipPack({
               <span className="font-medium">
                 {p.emoji} {p.label}
               </span>
-              <span className="text-xs text-muted">{p.hint}</span>
+              <span className="text-xs text-subtle">{p.range.label}</span>
             </button>
           ))}
         </div>
+        <p className="relative -mt-2 text-xs text-muted" data-testid="pack-audience">
+          {preset.audience} Hooks, music, cut and ending follow that.
+        </p>
 
         <div className="relative flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
           <div className="flex items-center gap-2">

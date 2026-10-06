@@ -91,6 +91,8 @@ export interface AssExtras {
   hook?: { text: string; seconds: number };
   /** Closing call to action ("Follow for part 2") from `start` to `end` seconds. */
   outro?: { text: string; start: number; end: number };
+  /** Small series label ("PART 1") in the top corner for the whole clip: people follow to see the next part. */
+  badge?: { text: string; end: number };
 }
 
 export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, extras: AssExtras = {}): string {
@@ -117,6 +119,8 @@ export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, e
       `Dialogue: 1,${assTime(0)},${assTime(extras.hook.seconds)},Hook,,0,0,0,,{\\fad(60,250)\\fscx70\\fscy70\\t(0,180,\\fscx106\\fscy106)\\t(180,280,\\fscx100\\fscy100)}${hook}`,
     );
   }
+  const badge = extras.badge && clean(extras.badge.text).trim();
+  if (badge && extras.badge) events.push(`Dialogue: 0,${assTime(0)},${assTime(extras.badge.end)},Badge,,0,0,0,,${badge}`);
   const outro = extras.outro && clean(extras.outro.text).trim();
   if (outro && extras.outro && extras.outro.end > extras.outro.start) {
     events.push(
@@ -170,6 +174,8 @@ export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, e
     styles[style],
     // Outro: same look as the hook, lower third, so it never covers the hook's spot.
     `Style: Outro,Anton,${Math.round(base * (portrait ? 0.075 : 0.06))},${WHITE},${WHITE},&HA0000000,&HA0000000,0,0,0,0,100,100,1,0,3,${Math.max(8, Math.round(base * 0.016))},0,2,${marginH},${marginH},${Math.round(H * (portrait ? 0.32 : 0.14))},1`,
+    // Badge: small, top-left, brand purple box.
+    `Style: Badge,Montserrat ExtraBold,${Math.round(base * 0.035)},${WHITE},${WHITE},&H00FF7B8B,&H00FF7B8B,0,0,0,0,100,100,1,0,3,${Math.max(4, Math.round(base * 0.008))},0,7,${Math.round(W * 0.05)},${marginH},${Math.round(H * 0.04)},1`,
     // Hook: Anton, top centre, on a translucent box so it reads over any picture.
     `Style: Hook,Anton,${Math.round(base * (portrait ? 0.085 : 0.07))},${WHITE},${WHITE},&HA0000000,&HA0000000,0,0,0,0,100,100,1,0,3,${Math.max(8, Math.round(base * 0.018))},0,8,${marginH},${marginH},${Math.round(H * (portrait ? 0.12 : 0.07))},1`,
     "",

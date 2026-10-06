@@ -43,6 +43,8 @@ export interface Sentence {
 }
 
 const WEIGHTS: ViralScores = { hook: 0.32, curiosity: 0.2, emotion: 0.2, value: 0.14, pacing: 0.14 };
+/** Scene scoring defaults, in ViralScores order: hook, build-up, peak, intensity, pacing. */
+export const SCENE_WEIGHTS: ViralScores = { hook: 0.28, curiosity: 0.18, emotion: 0.24, value: 0.18, pacing: 0.12 };
 
 const HOOK_OPENERS = /^(stop|listen|wait|look|imagine|nobody|no one|never|here'?s|this is|the (reason|truth|secret|problem)|why|how|what if|did you know|if you|you (need|have|won'?t|will|can'?t)|i (can'?t believe|quit|lost|made|tried)|don'?t)/i;
 const POWER_WORDS = /\b(secret|mistake|truth|nobody|never|stop|warning|crazy|insane|shocking|million|money|free|hack|trick|exposed|real reason|biggest|worst|best|only|instantly|guaranteed)\b/i;
@@ -167,8 +169,9 @@ export function scoreCandidate(sentences: Sentence[], analysis: ClipAnalysis | u
   };
 }
 
-export const overallScore = (s: ViralScores) =>
-  clamp(s.hook * WEIGHTS.hook + s.curiosity * WEIGHTS.curiosity + s.emotion * WEIGHTS.emotion + s.value * WEIGHTS.value + s.pacing * WEIGHTS.pacing);
+/** Weighted 0–100 score; audience playbooks pass their own weights (they should sum to 1). */
+export const overallScore = (s: ViralScores, w: ViralScores = WEIGHTS) =>
+  clamp(s.hook * w.hook + s.curiosity * w.curiosity + s.emotion * w.emotion + s.value * w.value + s.pacing * w.pacing);
 
 /** Simple post kit from the clip's own words (Claude writes better ones when available). */
 export function localPostKit(sentences: Sentence[]): { title: string; caption: string; hashtags: string[] } {
@@ -198,6 +201,8 @@ export interface FindOptions {
   minSeconds?: number;
   maxSeconds?: number;
   maxClips?: number;
+  /** What this audience rewards most (see playbooks). For scene clips: hook, build-up, peak, intensity, pacing. */
+  weights?: ViralScores;
 }
 
 /**
@@ -208,7 +213,7 @@ export function findViralClips(
   clipId: string,
   words: Word[],
   analysis: ClipAnalysis | undefined,
-  { minSeconds = 15, maxSeconds = 60, maxClips = 10 }: FindOptions = {},
+  { minSeconds = 15, maxSeconds = 60, maxClips = 10, weights }: FindOptions = {},
 ): ViralClip[] {
   const sentences = toSentences(words);
   const candidates: ViralClip[] = [];
@@ -224,7 +229,7 @@ export function findViralClips(
         clipId,
         start: Math.max(0, run[0].start - 0.15),
         end: run[run.length - 1].end + 0.3,
-        score: overallScore(scores),
+        score: overallScore(scores, weights),
         scores,
         hook: run[0].text,
         reasons,
@@ -253,6 +258,7 @@ export function findClipsByScene(clipId: string, duration: number, analysis: Cli
     minSeconds: Math.min(minSeconds, duration),
     maxSeconds,
     maxMoments: maxClips,
+    weights: opts.weights,
   });
   const clips = moments.map((m, i) => {
     const sig = m.signals;
@@ -276,7 +282,7 @@ export function findClipsByScene(clipId: string, duration: number, analysis: Cli
       start: m.start,
       end: m.end,
       peak: m.peak,
-      score: overallScore(scores),
+      score: overallScore(scores, opts.weights ?? SCENE_WEIGHTS),
       scores,
       hook: `Peaks ${mmss(m.peak - m.start)} in`,
       reasons: reasons.length ? reasons : ["Steady energy"],

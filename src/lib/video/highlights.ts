@@ -154,6 +154,8 @@ export interface MomentOptions {
   minSeconds: number;
   maxSeconds: number;
   maxMoments: number;
+  /** Signal weights (hook, curiosity = build-up, emotion = peak, value = intensity, pacing); audience playbooks tune these. */
+  weights?: { hook: number; curiosity: number; emotion: number; value: number; pacing: number };
 }
 
 const CUT_THRESHOLD = 0.3;
@@ -285,7 +287,8 @@ export function findMoments(clipId: string, duration: number, a: ClipAnalysis, o
       const intensity = avg(s, e);
       const pacing = Math.min(1, (C[e] - C[s]) / (len * BIN_SECONDS) / 0.4);
       const arc = peakPos >= 0.2 && peakPos <= 0.92;
-      const base = 0.28 * hook + 0.18 * build + 0.24 * max + 0.18 * intensity + 0.12 * pacing;
+      const w = opts.weights ?? { hook: 0.28, curiosity: 0.18, emotion: 0.24, value: 0.18, pacing: 0.12 };
+      const base = w.hook * hook + w.curiosity * build + w.emotion * max + w.value * intensity + w.pacing * pacing;
       const score = base * (arc ? 1 : 0.85) * (0.92 + 0.08 * (len / maxB));
       candidates.push({
         clipId,
