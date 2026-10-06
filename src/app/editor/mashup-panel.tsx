@@ -20,7 +20,12 @@ export const EDIT_STYLES: Record<EditFormat, MusicStyle[]> = {
   hype: ["phonk", "trap"],
   versus: ["trap", "phonk"],
   feels: ["cinematic", "lofi"],
+  quote: ["cinematic", "trap", "lofi"],
+  countdown: ["lofi", "trap", "afro"],
 };
+
+/** Formats cut to the beat grid (intro, build, drop, slow motion); the others follow the speech. */
+const BEAT_FORMATS: EditFormat[] = ["hype", "versus", "feels"];
 
 /** The seed the export composes with, so the preview plays the same track. */
 export const musicSeed = (plan: EditPlan) => Math.round(plan.shots[0].start * 10) + plan.shots.length;
@@ -74,7 +79,7 @@ export function MashupPanel({
           <div>
             <h2 className="text-lg font-semibold">Edits & mashups</h2>
             <p className="text-sm text-muted">
-              Beat-synced edits like the ones that hit millions: a slow intro, cuts that speed up, the biggest hit landing on the drop, a cut on every beat, and a slow-motion ending that loops. From one video or several.
+              Edits built the way viral shorts are, for whatever you clip. Action (anime, gaming, sports): beat-synced edits with the big hit on the drop. Talking (podcasts, streams, interviews): quote edits with punch-in zooms and captions, and Top 3 countdowns.
             </p>
           </div>
         </div>
@@ -221,6 +226,7 @@ function EditCard({
 
 /** The edit's shape: a bar per shot, as wide as its beats, colored by video, with the drop marked. */
 function Structure({ plan, videos }: { plan: EditPlan; videos: Record<string, MashupVideoInfo> }) {
+  if (!BEAT_FORMATS.includes(plan.format)) return <TalkStructure plan={plan} videos={videos} />;
   const total = plan.shots.reduce((s, x) => s + x.beats, 0);
   const at = plan.shots.reduce<number[]>((acc, x, i) => [...acc, i ? acc[i - 1] + plan.shots[i - 1].beats : 0], []);
   const dropBeat = plan.shots.slice(0, plan.shots.findIndex((x) => x.role === "drop")).reduce((s, x) => s + x.beats, 0);
@@ -247,6 +253,28 @@ function Structure({ plan, videos }: { plan: EditPlan; videos: Record<string, Ma
   );
 }
 
+/** Talking edits: the clips to scale, with their countdown numbers or punch-ins. */
+function TalkStructure({ plan, videos }: { plan: EditPlan; videos: Record<string, MashupVideoInfo> }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex h-7 gap-px overflow-hidden rounded-md" aria-label="Cuts">
+        {plan.shots.map((s, i) => (
+          <span
+            key={i}
+            className={`grid h-full place-items-center text-[10px] font-semibold text-black ${s.fx?.zoom ? "opacity-100" : "opacity-70"}`}
+            style={{ width: `${((s.end - s.start) / plan.length) * 100}%`, background: videos[s.clipId]?.color ?? "#888" }}
+          >
+            {plan.labels?.[i]?.text}
+          </span>
+        ))}
+      </div>
+      <p className="text-[10px] uppercase tracking-wide text-subtle">
+        {plan.format === "countdown" ? "Counts down to the best one" : "Wide and punched-in, switching on every bar"}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Plays the edit live: the composed track through Web Audio, and the shots
  * cut to it from the user's own files. Two video elements take turns, so the
@@ -261,8 +289,10 @@ function EditPreview({ plan, videos }: { plan: EditPlan; videos: Record<string, 
   const [time, setTime] = useState(0);
   const stopRef = useRef<() => void>(() => {});
   const poster = useThumbnail(videos[plan.shots[0]?.clipId]?.url, plan.shots[plan.shots.findIndex((s) => s.role === "drop")]?.start ?? 0, 360);
-  const beat = 60 / plan.bpm;
-  const starts = plan.shots.reduce<number[]>((acc, s, i) => [...acc, i ? acc[i - 1] + plan.shots[i - 1].beats * beat : 0], []);
+  const lengthOf = (s: Shot) => (s.end - s.start) / (s.speed ?? 1);
+  const starts = plan.shots.reduce<number[]>((acc, s, i) => [...acc, i ? acc[i - 1] + lengthOf(plan.shots[i - 1]) : 0], []);
+  // Talking edits play the speaker's voice, with the beat underneath.
+  const voice = plan.mix.original >= 0.5;
 
   useEffect(() => () => stopRef.current(), []);
   // A new cut or new beat: start over.
@@ -288,7 +318,9 @@ function EditPreview({ plan, videos }: { plan: EditPlan; videos: Record<string, 
     const ctx = new AudioContext();
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(ctx.destination);
+    const gain = ctx.createGain();
+    gain.gain.value = voice ? 0.3 : 1;
+    src.connect(gain).connect(ctx.destination);
     prepare(el(0), plan.shots[0]);
     prepare(el(1), plan.shots[1]);
     await new Promise((r) => setTimeout(r, 250));
@@ -341,13 +373,18 @@ function EditPreview({ plan, videos }: { plan: EditPlan; videos: Record<string, 
         // eslint-disable-next-line @next/next/no-img-element -- a frame from the user's own local video
         <img src={poster} alt="" className="absolute inset-0 size-full object-cover opacity-80" />
       )}
-      <PreviewVideo ref={first} on={state === "playing" && shot >= 0 && shot % 2 === 0} fx={s?.fx} />
-      <PreviewVideo ref={second} on={state === "playing" && shot % 2 === 1} fx={s?.fx} />
+      <PreviewVideo ref={first} on={state === "playing" && shot >= 0 && shot % 2 === 0} fx={s?.fx} voice={voice} />
+      <PreviewVideo ref={second} on={state === "playing" && shot % 2 === 1} fx={s?.fx} voice={voice} />
       {state === "playing" && flash && <div key={shot} className={`pointer-events-none absolute inset-0 animate-cut ${flash}`} />}
       {state === "playing" && time < 3 && (
         <p className="absolute inset-x-2 top-[14%] text-center font-display text-lg uppercase leading-tight text-white [text-shadow:0_0_6px_#000,0_2px_0_#000]">{plan.hook}</p>
       )}
-      {state === "playing" && s?.role === "outro" && (
+      {state === "playing" && plan.labels?.find((l) => time >= l.start && time < l.end) && (
+        <p className="absolute left-3 top-[24%] font-display text-4xl text-[#ffd84a] [text-shadow:0_0_6px_#000,0_3px_0_#000]">
+          {plan.labels.find((l) => time >= l.start && time < l.end)?.text}
+        </p>
+      )}
+      {state === "playing" && time >= plan.length - 1.6 && (
         <p className="absolute inset-x-2 bottom-[22%] text-center font-display text-base uppercase leading-tight text-white [text-shadow:0_0_6px_#000,0_2px_0_#000]">{plan.cta}</p>
       )}
       {state === "playing" && (
@@ -368,7 +405,16 @@ function EditPreview({ plan, videos }: { plan: EditPlan; videos: Record<string, 
 }
 
 /** One of the preview's two alternating players; punch and shake replay on every cut it shows. */
-function PreviewVideo({ ref, on, fx }: { ref: React.Ref<HTMLVideoElement>; on: boolean; fx: Shot["fx"] }) {
+function PreviewVideo({ ref, on, fx, voice }: { ref: React.Ref<HTMLVideoElement>; on: boolean; fx: Shot["fx"]; voice: boolean }) {
   const motion = on && fx?.punch ? "animate-punch" : on && fx?.shake ? "animate-shake" : "";
-  return <video ref={ref} muted playsInline preload="auto" className={`absolute inset-0 size-full object-cover ${on ? "opacity-100" : "opacity-0"} ${motion}`} />;
+  return (
+    <video
+      ref={ref}
+      muted={!(on && voice)}
+      playsInline
+      preload="auto"
+      className={`absolute inset-0 size-full object-cover ${on ? "opacity-100" : "opacity-0"} ${motion}`}
+      style={on && fx?.zoom ? { transform: `scale(${fx.zoom})`, transformOrigin: "50% 35%" } : undefined}
+    />
+  );
 }

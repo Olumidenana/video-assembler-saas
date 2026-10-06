@@ -22,7 +22,7 @@ import { BIN_SECONDS, type ClipAnalysis } from "@/lib/video/analysis";
 import { findMoments, rawScores, themeSongRanges } from "@/lib/video/highlights";
 import type { SegmentFx } from "@/lib/video/types";
 
-export type EditFormat = "hype" | "versus" | "feels";
+export type EditFormat = "hype" | "versus" | "feels" | "quote" | "countdown";
 
 export interface Shot {
   clipId: string;
@@ -31,8 +31,8 @@ export interface Shot {
   end: number;
   speed?: number;
   fx?: SegmentFx;
-  role: "intro" | "build" | "drop" | "outro";
-  /** Beats it lasts in the edit. */
+  role: "intro" | "build" | "drop" | "outro" | "clip";
+  /** Beats it lasts in the edit (fractional for talking clips, which follow the speech). */
   beats: number;
 }
 
@@ -55,7 +55,18 @@ export interface EditPlan {
   length: number;
   /** Set when AI Theme Match chose the moments. */
   ai?: boolean;
+  /** How the beat sits with the original sound. Edits: the beat leads; talking clips: the voice leads. */
+  mix: { volume: number; original: number; duck: boolean };
+  /** Word-by-word captions (talking clips). */
+  captions: boolean;
+  /** Cut on exact frames of the beat grid. */
+  exact: boolean;
+  /** Big on-screen labels in output time ("#3", "#2", "#1"). */
+  labels?: { text: string; start: number; end: number }[];
 }
+
+/** The beat leads, the original sound sits underneath for the impacts. */
+export const EDIT_MIX = { volume: 0.9, original: 0.3, duck: false };
 
 export interface EditVideo {
   clipId: string;
@@ -275,6 +286,9 @@ export function planEdits(videos: EditVideo[], styles: Partial<Record<EditFormat
       hook: "Wait for the drop",
       cta: "Rate this edit 1-10",
       music: music.hype,
+      mix: EDIT_MIX,
+      captions: false,
+      exact: true,
       ...hype,
     });
   }
@@ -291,6 +305,9 @@ export function planEdits(videos: EditVideo[], styles: Partial<Record<EditFormat
         hook: `${names[0]} vs ${names[1]}`,
         cta: "Who wins? Comment below",
         music: music.versus,
+        mix: EDIT_MIX,
+        captions: false,
+        exact: true,
         ...vs,
       });
     }
@@ -303,9 +320,12 @@ export function planEdits(videos: EditVideo[], styles: Partial<Record<EditFormat
       title: "Emotional edit",
       emoji: "💧",
       why: "Quiet, heavy moments cut on the bar with soft dips, a swelling score, and a slow-motion ending. Sad edits get saved and sent to friends.",
-      hook: "This scene still hurts",
+      hook: "This one hits different",
       cta: "Send this to someone who gets it",
       music: music.feels,
+      mix: EDIT_MIX,
+      captions: false,
+      exact: true,
       ...feels,
     });
   }
@@ -329,5 +349,15 @@ export function planThemedEdit(
   const format: EditFormat = meta.music === "cinematic" || meta.music === "lofi" ? "feels" : "hype";
   const plan = layout(format, meta.music, vids, pools, calm);
   if (!plan) return null;
-  return { ...meta, format, emoji: "🧠", cta: format === "feels" ? "Send this to someone who gets it" : "Rate this edit 1-10", ai: true, ...plan };
+  return {
+    ...meta,
+    format,
+    emoji: "🧠",
+    cta: format === "feels" ? "Send this to someone who gets it" : "Rate this edit 1-10",
+    ai: true,
+    mix: EDIT_MIX,
+    captions: false,
+    exact: true,
+    ...plan,
+  };
 }

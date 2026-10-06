@@ -91,6 +91,19 @@ describe("beat edits", () => {
     expect(plans[0].shots.filter((s) => s.role === "drop").length).toBeGreaterThanOrEqual(10);
   });
 
+  it("still makes an edit from one video with only a short fight", () => {
+    const short = episode(5, 300, 120);
+    // Only 15 s of fight: not enough big hits for 13 distinct drop cuts.
+    for (let i = 630; i < 720; i++) {
+      short.loudness[i] = -24 + (i % 3);
+      short.motion[i] = 2;
+    }
+    const plans = planEdits([{ clipId: "s", name: "one.mp4", duration: 600, analysis: short }]);
+    const hype = plans.find((p) => p.id === "hype")!;
+    expect(hype).toBeDefined();
+    expect(hype.shots.reduce((s, x) => s + x.beats, 0)).toBe(36);
+  });
+
   it("shortens file names for the screen", () => {
     expect(shortName("black_clover_ep15.mp4")).toBe("black clover ep15");
     expect(shortName("a-very-long-file-name-for-a-movie.mp4")).toBe("a very long file…");

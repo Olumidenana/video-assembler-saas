@@ -10,7 +10,7 @@ import { PLAN_LIMITS, type PlanId } from "@/lib/plans";
 import type { ClipAnalysis } from "@/lib/video/analysis";
 import type { MediaInfo } from "@/lib/video/types";
 import type { Range } from "@/lib/video/highlights";
-import { canStreamCopy, isUntrimmed, needsDownscale } from "@/lib/video/commands";
+import { canStreamCopy, computeCanvas, isUntrimmed, needsDownscale } from "@/lib/video/commands";
 import { CancelledError, EngineCrashedError, VideoEngine } from "@/lib/video/engine";
 import { chooseMethod, exportParts, exportStitched, type ExportMethod, type ExportResult } from "@/lib/video/export";
 import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/timeline";
@@ -25,6 +25,7 @@ import { ClipPack } from "./clip-pack";
 import { MashupPanel } from "./mashup-panel";
 import { findBeats, type Beat, MOODS } from "@/lib/assistant/mashup";
 import { type EditPlan, type EditVideo, planEdits, planThemedEdit } from "@/lib/assistant/beat-edit";
+import { planTalkEdits } from "@/lib/assistant/talk-edit";
 import { outputDuration } from "@/lib/video/transitions";
 import type { Playbook } from "@/lib/assistant/playbooks";
 import { pickHooks } from "@/lib/assistant/hooks";
@@ -837,10 +838,35 @@ export function Editor({ plan }: { plan: PlanId }) {
     });
   }
 
+  /** Mostly talking (podcasts, streams, interviews): sound, and few cuts. These get transcribed for quote edits. */
+  const isTalking = (v: EditVideo) => Boolean(timeline.clips[v.clipId]?.info.audioCodec) && cutsPerMinute(v.analysis) < 6;
+  /** Has action worth a beat edit: edited footage, or real bursts of movement. */
+  const hasAction = (v: EditVideo) => {
+    const sorted = [...v.analysis.motion].sort((a, b) => a - b);
+    return cutsPerMinute(v.analysis) >= 2 || (sorted[Math.floor(sorted.length * 0.95)] ?? 0) >= 6;
+  };
+
   /**
-   * Edits: analyses the chosen videos and plans beat-synced edits from them
-   * (hype, versus, emotional) and, with AI Theme Match (Studio), one built
-   * around a story theme Claude finds across them.
+   * Edits for these videos. Content is rarely just one thing, so every video
+   * with sound can give quote edits (when there's a transcript) and a
+   * countdown, and every video with action gives beat edits; whichever the
+   * footage mostly is comes first.
+   */
+  function planAllEdits(ids: string[], styles: Partial<Record<EditPlan["format"], MusicStyle>> = {}): EditPlan[] {
+    const videos = editVideos(ids);
+    const voiced = videos.filter((v) => timeline.clips[v.clipId]?.info.audioCodec).map((v) => ({ ...v, words: transcripts.current.get(v.clipId) ?? [] }));
+    const action = videos.filter(hasAction);
+    const fps = computeCanvas(timeline.clips[ids[0]].info, limits.maxShortSide, "9:16").fps;
+    const talk = voiced.length ? planTalkEdits(voiced, fps, styles) : [];
+    const beat = action.length ? planEdits(action, styles) : [];
+    return videos.filter(isTalking).length > videos.length / 2 ? [...talk, ...beat] : [...beat, ...talk];
+  }
+
+  /**
+   * Edits: analyses the chosen videos and plans the edits that suit each:
+   * beat-synced edits (hype, versus, emotional) for action footage, quote
+   * edits and a Top 3 countdown for talking footage, and with AI Theme Match
+   * (Studio) one built around a story theme Claude finds across them.
    */
   async function findMashups(videoIds: string[], useAi: boolean) {
     setEdits(null);
@@ -854,11 +880,23 @@ export function Editor({ plan }: { plan: PlanId }) {
         await getAnalysis(id, info, (r) => setTask({ label: `Watching ${ids.length === 1 ? "your video" : `${ids.length} videos`} for the big moments…`, progress: total ? (done + r * info.duration) / total : null }));
         done += info.duration;
       }
+      // Talking videos are clipped on what's said: transcribe them (in any language).
+      const talkingIds = editVideos(ids).filter(isTalking).map((v) => v.clipId);
+      if (talkingIds.length) {
+        try {
+          await ensureTranscripts(talkingIds);
+        } catch (err) {
+          if (err instanceof CancelledError) throw err;
+          setErrors((e) => [...e, "The speech model didn't load, so talking clips are picked on sound alone. Check your connection for quote edits."]);
+        } finally {
+          setTask(null);
+        }
+      }
       setEditIds(ids);
-      const videos = editVideos(ids);
-      let found = planEdits(videos);
-      if (useAi && limits.aiVision && ids.length >= 2) {
-        const themed = await matchThemesWithAi(ids, videos);
+      let found = planAllEdits(ids);
+      const action = editVideos(ids).filter(hasAction);
+      if (useAi && limits.aiVision && action.length >= 2) {
+        const themed = await matchThemesWithAi(action.map((v) => v.clipId), action);
         if (themed.length) found = [...themed, ...found];
       }
       setEdits(found);
@@ -869,9 +907,9 @@ export function Editor({ plan }: { plan: PlanId }) {
     }
   }
 
-  /** Re-cuts one edit to another beat (the cuts follow the tempo). */
+  /** Re-cuts one edit to another beat (beat edits follow the tempo; talking edits switch shots on its bars). */
   function restyleEdit(plan: EditPlan, music: MusicStyle) {
-    const next = planEdits(editVideos(editIds), { [plan.format]: music }).find((p) => p.id === plan.id);
+    const next = planAllEdits(editIds, { [plan.format]: music }).find((p) => p.id === plan.id);
     if (next) setEdits((list) => list?.map((p) => (p.id === plan.id ? next : p)) ?? null);
   }
 
@@ -947,11 +985,12 @@ export function Editor({ plan }: { plan: PlanId }) {
       ...settings,
       aspect: "9:16",
       fit: "blur",
-      captions: false,
+      captions: plan.captions,
+      captionStyle: limits.captionStyles === "all" ? "bold-pop" : "clean",
       hook: { on: true, text: "" },
-      progressBar: false,
-      // The beat carries an edit; the original sound sits underneath for the impacts.
-      music: { style: plan.music, volume: 0.9, original: 0.3, duck: false },
+      // A progress bar helps long talking clips; beat edits loop, so they go without.
+      progressBar: !plan.exact || plan.format === "quote",
+      music: { style: plan.music, ...plan.mix },
     };
     setSettings(editSettings);
     document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
@@ -961,7 +1000,8 @@ export function Editor({ plan }: { plan: PlanId }) {
       drops: new Map([[itemKey(last), plan.dropAt]]),
       outro: plan.cta,
       normalize: true,
-      frameExact: true,
+      frameExact: plan.exact,
+      labels: plan.labels,
     });
   }
 
@@ -1002,6 +1042,8 @@ export function Editor({ plan }: { plan: PlanId }) {
       endCard?: number;
       /** Beat-synced edit: cut on exact frames so every cut stays on its beat. */
       frameExact?: boolean;
+      /** Big on-screen labels in output time ("#3", "#2", "#1"). */
+      labels?: { text: string; start: number; end: number }[];
     } = {},
   ) {
     let s = run.settings ?? settings;
@@ -1058,7 +1100,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       watermark: limits.watermark,
       logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
       captions:
-        s.captions || s.hook.on || run.outro || run.badges
+        s.captions || s.hook.on || run.outro || run.badges || run.labels
           ? (renderItems: ExportItem[], canvas: Parameters<typeof buildAss>[2]) => {
               const words = s.captions
                 ? wordsForOutput(renderItems, Object.fromEntries(transcripts.current), limits.captionSeconds)
@@ -1070,8 +1112,8 @@ export function Editor({ plan }: { plan: PlanId }) {
               const outro = run.outro && total > 8 ? { text: run.outro, start: card ? total - 0.2 : total - 1.6, end: total + card } : undefined;
               const badgeText = run.badges?.get(itemKey(renderItems[renderItems.length - 1]));
               const badge = badgeText ? { text: badgeText, end: total } : undefined;
-              if (!words.length && !hookText && !outro && !badge) return null;
-              return buildAss(words, style, canvas, { ...(hookText ? { hook: { text: hookText, seconds: 3 } } : {}), outro, badge });
+              if (!words.length && !hookText && !outro && !badge && !run.labels?.length) return null;
+              return buildAss(words, style, canvas, { ...(hookText ? { hook: { text: hookText, seconds: 3 } } : {}), outro, badge, labels: run.labels });
             }
           : undefined,
       progressBar: s.progressBar,

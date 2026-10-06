@@ -59,4 +59,6 @@ export interface SegmentFx {
   punch?: boolean;
   /** Camera shake that settles over the first third of a second (an impact). */
   shake?: boolean;
+  /** Hold a punch-in for the whole segment (1.2 = 20% closer, framed on the upper middle where faces are). */
+  zoom?: number;
 }

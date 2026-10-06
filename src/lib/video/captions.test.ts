@@ -89,3 +89,11 @@ describe("part badge", () => {
     expect(ass).toContain("Dialogue: 0,0:00:00.00,0:00:30.00,Badge,,0,0,0,,PART 2");
   });
 });
+
+describe("countdown labels", () => {
+  it("pops a big number in over each part", () => {
+    const ass = buildAss([], "clean", { width: 720, height: 1280, fps: 30 }, { labels: [{ text: "#3", start: 0, end: 9.5 }, { text: "#2", start: 9.5, end: 20 }] });
+    expect(ass).toContain("Style: Label,Anton,");
+    expect(ass).toMatch(/Dialogue: 1,0:00:09\.50,0:00:20\.00,Label,,0,0,0,,\{[^}]*\}#2/);
+  });
+});

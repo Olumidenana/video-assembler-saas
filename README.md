@@ -227,6 +227,19 @@ or lo-fi, ~24 s). Changing the beat re-cuts the edit to the new tempo. Each card
 the composed track through Web Audio and the shots from the user's files, two video elements taking
 turns so the next shot is already seeked.
 
+**Talking content** (`src/lib/assistant/talk-edit.ts`), for clippers turning podcasts, streams,
+interviews and sermons into shorts. Videos with few cuts (under 6 a minute) are transcribed (any
+language), and every video with speech can give:
+- **Quote edit**: the strongest self-contained 12-28 s line (`findViralClips`), kept whole, cut on
+  every bar into alternating wide and punched-in (`fx.zoom`, framed on the upper middle) shots so the
+  frame never sits still, word-by-word captions, and a score that drops after the opening line and
+  ducks under the voice. Cut points are on whole frames, so the voice runs on with no gap or repeat.
+- **Top 3 countdown**: the three best 7-15 s moments (whole sentences, or scenes without speech),
+  weakest first, with big "#3", "#2", "#1" labels; the countdown is an open loop that holds viewers
+  to #1.
+Beat edits are offered for every video with action (2+ cuts a minute, or real bursts of motion), so
+an anime episode gets both its fight edit and, with a transcript, its speeches as quote edits.
+
 Exports are frame-exact (`frameExact`): every boundary is rounded to the nearest frame of one global
 grid, so cuts stay on the beat however many there are; edits with more than 6 shots render 6 at a
 time into high-quality intermediates (each on the same grid), then join them with the music, hook and

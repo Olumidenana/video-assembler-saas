@@ -174,6 +174,10 @@ interface FitExtras {
 /** The per-segment effects of a beat edit, applied after the segment is on the canvas. */
 function effectFilters(W: number, H: number, fps: number, { flashIn, fx }: FitExtras): string {
   const out: string[] = [];
+  if (fx?.zoom && fx.zoom > 1) {
+    // Jump zoom (talking clips): closer on the upper middle, where the speaker's face usually is.
+    out.push(`scale=${even(W * fx.zoom)}:${even(H * fx.zoom)},crop=${W}:${H}:(iw-ow)/2:(ih-oh)*0.35`);
+  }
   // A flash cut: the segment fades in from white, the classic edit transition after a cold open.
   if (flashIn) out.push("fade=t=in:st=0:d=0.3:color=white");
   if (fx?.punch) {
@@ -191,7 +195,7 @@ function effectFilters(W: number, H: number, fps: number, { flashIn, fx }: FitEx
   if (fx?.flash) out.push(`fade=t=in:st=0:d=${secs(fx.flash)}:color=white`);
   if (fx?.dip) out.push(`fade=t=in:st=0:d=${secs(fx.dip)}:color=black`);
   // zoompan and scale+crop change the sample aspect ratio, which concat rejects.
-  if (fx?.punch || fx?.shake) out.push("setsar=1");
+  if (fx?.punch || fx?.shake || (fx?.zoom && fx.zoom > 1)) out.push("setsar=1");
   return out.map((f) => `,${f}`).join("");
 }
 
