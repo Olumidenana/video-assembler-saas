@@ -22,10 +22,12 @@ import { findClipsByScene, findViralClips, overallScore, toSentences, type Viral
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
 import { ClipPack, type PackPreset } from "./clip-pack";
+import { OUTRO_LINES, pickHooks } from "@/lib/assistant/hooks";
 // Type-only (erased at build time), so the server-only module never reaches the browser.
 import type { VisionVerdict } from "@/lib/assistant/claude";
 import { TaskBanner } from "./task-banner";
 import { WorkspaceNav } from "./workspace-nav";
+import { ShareButton } from "./share-button";
 import { forgetThumbnails } from "./thumbnails";
 import { DEFAULT_MUSIC, type OwnTrack } from "./music-controls";
 import { VIRAL_RANGES, ViralPanel, type VideoKind, type ViralRange } from "./viral-panel";
@@ -51,10 +53,22 @@ const BACKGROUND_ANALYSIS_MAX_SECONDS = 1800;
 
 type EngineStatus = "loading" | "ready" | "error";
 type ExportMode = "stitch" | "parts";
+interface ExportOutput {
+  url: string;
+  name: string;
+  size: number;
+  method: ExportMethod;
+  /** Caption and hashtags to post with it (Clip Pack parts). */
+  shareText?: string;
+}
+
+/** Identifies a clip range across renders (hooks, drops). */
+const itemKey = (i: { clipId: string; start: number }) => `${i.clipId}@${i.start.toFixed(2)}`;
+
 type ExportState =
   | { status: "idle"; message?: string }
   | { status: "running"; progress: number }
-  | { status: "done"; outputs: { url: string; name: string; size: number; method: ExportMethod }[] }
+  | { status: "done"; outputs: ExportOutput[] }
   | { status: "error"; message: string };
 
 export function Editor({ plan }: { plan: PlanId }) {
@@ -676,7 +690,7 @@ export function Editor({ plan }: { plan: PlanId }) {
         .filter((c) => verdicts.has(c.id))
         .map((c) => {
           const v = verdicts.get(c.id)!;
-          if (v.hook) hooks.set(`${c.clipId}@${c.start.toFixed(2)}`, v.hook);
+          if (v.hook) hooks.set(itemKey(c), v.hook);
           return {
             ...c,
             score: v.score,
@@ -730,10 +744,29 @@ export function Editor({ plan }: { plan: PlanId }) {
       }
     }
     picks = picks.slice(0, wanted);
-    for (const c of picks) {
-      const key = `${c.clipId}@${c.start.toFixed(2)}`;
-      if (!hooks.has(key)) hooks.set(key, found.basis === "scenes" ? c.caption : c.title);
-    }
+    // Hooks AI Vision didn't write come from the hook library (curiosity gap,
+    // stakes, pattern interrupt, payoff), matched to each clip and never repeated.
+    const library = pickHooks(picks, found.basis);
+    picks.forEach((c, i) => {
+      if (!hooks.has(itemKey(c))) hooks.set(itemKey(c), library[i]);
+    });
+
+    // Flash-forward cold open: ~1.8 s of the clip's peak first, then the clip
+    // from its build-up. Viewers decide in the first second and a half, so they
+    // see the payoff up front and stay to see how it happens.
+    const TEASER = 1.8;
+    const drops = new Map<string, number>();
+    const groups = picks.map((c) => {
+      const info = timeline.clips[c.clipId].info;
+      const main = { clipId: c.clipId, info, start: c.start, end: c.end };
+      const peak = c.peak ?? c.start + outputPeak([main], analyses.current);
+      const long = c.end - c.start >= 12 && peak - c.start > TEASER + 2;
+      const teaserStart = Math.min(Math.max(c.start, peak - TEASER / 2), c.end - TEASER);
+      const group = long ? [{ ...main, start: teaserStart, end: teaserStart + TEASER }, main] : [main];
+      // The beat drops when the real peak comes round again, after the intro.
+      drops.set(itemKey(main), (long ? TEASER : 0) + (peak - c.start));
+      return group;
+    });
 
     const packSettings: ExportSettings = {
       ...settings,
@@ -747,24 +780,28 @@ export function Editor({ plan }: { plan: PlanId }) {
     };
     setSettings(packSettings);
     const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+    // Scene picks without AI Vision are titled "Scene 2 · 6:30"; their hook reads better.
+    const titleOf = (c: ViralClip, i: number) => (/^Scene \d/.test(c.title) ? library[i] : c.title);
+    const shareTexts = picks.map((c) => [c.caption.trim(), c.hashtags.join(" ")].filter(Boolean).join("\n\n"));
     const postKit = [
       `Clip Pack: ${preset.label} (${picks.length} clip${picks.length === 1 ? "" : "s"})`,
       "",
       ...picks.flatMap((c, i) => [
         `PART ${String(i + 1).padStart(2, "0")} · ${timeline.clips[c.clipId]?.file.name ?? "video"} ${mmss(c.start)}-${mmss(c.end)} · score ${c.score}`,
-        // Scene picks without AI Vision are titled "Scene 2 · 6:30"; their hook line reads better.
-        `Title: ${/^Scene \d/.test(c.title) ? c.caption : c.title}`,
+        `Hook (on screen): ${hooks.get(itemKey(c)) ?? ""}`,
+        `Title: ${titleOf(c, i)}`,
         `Caption: ${c.caption}`,
         `Hashtags: ${c.hashtags.join(" ")}`,
         ...(c.reasons.length ? [`Why: ${c.reasons.join("; ")}`] : []),
         "",
       ]),
+      "Tip: post 1-2 parts a day, and pin a comment asking which part they want next.",
     ].join("\n");
     document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
     await startExport(
       picks.map((c) => ({ clipId: c.clipId, info: timeline.clips[c.clipId].info, start: c.start, end: c.end })),
       "parts",
-      { settings: packSettings, hooks, postKit },
+      { settings: packSettings, hooks, postKit, groups, drops, outro: OUTRO_LINES[preset.id], shareTexts, normalize: true },
     );
   }
 
@@ -776,7 +813,22 @@ export function Editor({ plan }: { plan: PlanId }) {
   async function startExport(
     items = toExportItems(timeline),
     exportMode: ExportMode = mode,
-    run: { settings?: ExportSettings; hooks?: Map<string, string>; postKit?: string } = {},
+    run: {
+      settings?: ExportSettings;
+      /** Hook text per clip, keyed by itemKey of the clip's main item. */
+      hooks?: Map<string, string>;
+      postKit?: string;
+      /** Parts made of several items (flash-forward intro + clip); exported instead of `items` one by one. */
+      groups?: ExportItem[][];
+      /** Closing call to action over the last 1.6 s. */
+      outro?: string;
+      /** Exact music drop time (output seconds) per part, keyed like `hooks`. */
+      drops?: Map<string, number>;
+      /** Caption + hashtags for each part, for sharing. */
+      shareTexts?: string[];
+      /** Even out loudness for the platforms. */
+      normalize?: boolean;
+    } = {},
   ) {
     let s = run.settings ?? settings;
     if (exportMode === "stitch" && new Set(items.map((i) => i.clipId)).size > limits.maxStitchClips) {
@@ -831,35 +883,39 @@ export function Editor({ plan }: { plan: PlanId }) {
       watermark: limits.watermark,
       logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
       captions:
-        s.captions || s.hook.on
+        s.captions || s.hook.on || run.outro
           ? (renderItems: ExportItem[], canvas: Parameters<typeof buildAss>[2]) => {
               const words = s.captions
                 ? wordsForOutput(renderItems, Object.fromEntries(transcripts.current), limits.captionSeconds)
                 : [];
               const hookText = s.hook.on ? hookFor(renderItems, s, run.hooks) : null;
-              if (!words.length && !hookText) return null;
-              return buildAss(words, style, canvas, hookText ? { hook: { text: hookText, seconds: 3 } } : {});
+              const total = renderItems.reduce((sum, i) => sum + i.end - i.start, 0);
+              const outro = run.outro && total > 8 ? { text: run.outro, start: total - 1.6, end: total } : undefined;
+              if (!words.length && !hookText && !outro) return null;
+              return buildAss(words, style, canvas, { ...(hookText ? { hook: { text: hookText, seconds: 3 } } : {}), outro });
             }
           : undefined,
       progressBar: s.progressBar,
+      normalize: run.normalize,
       music:
         composed || (music.style === "own" && ownTrack)
           ? async (renderItems: ExportItem[], duration: number) => {
               const mix = { volume: music.volume, original: music.original, duck: music.duck };
               if (!composed) return ownTrack ? { ...mix, bytes: ownTrack.bytes, ext: ownTrack.ext } : null;
               const seed = Math.round(renderItems[0].start * 10) + renderItems.length;
-              return { ...mix, bytes: await composeWav(composed, duration, outputPeak(renderItems, analyses.current), seed), ext: "wav" };
+              const drop = run.drops?.get(itemKey(renderItems[renderItems.length - 1])) ?? outputPeak(renderItems, analyses.current);
+              return { ...mix, bytes: await composeWav(composed, duration, drop, seed), ext: "wav" };
             }
           : undefined,
       onProgress: (progress: number) => setExportState({ status: "running", progress }),
     };
     try {
       const results: ExportResult[] =
-        exportMode === "stitch" ? [await exportStitched(engine, items, options)] : await exportParts(engine, items, options);
-      const outputs = results.map((r) => {
+        exportMode === "stitch" ? [await exportStitched(engine, items, options)] : await exportParts(engine, run.groups ?? items, options);
+      const outputs: ExportOutput[] = results.map((r, i) => {
         const url = URL.createObjectURL(r.blob);
         outputUrls.current.push(url);
-        return { url, name: r.name, size: r.blob.size, method: r.method };
+        return { url, name: r.name, size: r.blob.size, method: r.method, shareText: run.shareTexts?.[i] };
       });
       if (run.postKit) {
         const kit = new Blob([run.postKit], { type: "text/plain" });
@@ -893,9 +949,10 @@ export function Editor({ plan }: { plan: PlanId }) {
     const plain = (t: string) => t.replace(/\p{Extended_Pictographic}|\uFE0F/gu, "").replace(/\s+/g, " ").trim();
     const custom = plain(s.hook.text);
     if (custom) return custom;
-    const first = renderItems[0];
-    const given = first && hooks?.get(`${first.clipId}@${first.start.toFixed(2)}`);
+    const main = renderItems[renderItems.length - 1];
+    const given = main && hooks?.get(itemKey(main));
     if (given) return plain(given) || null;
+    const first = renderItems[0];
     const clip = viral?.clips.find((c) => c.clipId === first?.clipId && Math.abs(c.start - first.start) < 0.3);
     if (!clip) return null;
     return plain(viral?.basis === "scenes" ? clip.caption : clip.title) || "Wait for it…";
@@ -1263,7 +1320,7 @@ export function Editor({ plan }: { plan: PlanId }) {
                 {exportState.message}
               </p>
             )}
-            {exportState.status === "done" && <Outputs outputs={exportState.outputs} />}
+            {exportState.status === "done" && <Outputs outputs={exportState.outputs} canShare={plan === "studio"} />}
           </section>
         )}
 
@@ -1401,7 +1458,7 @@ function EngineBadge({ status, mode }: { status: EngineStatus; mode: VideoEngine
   );
 }
 
-function Outputs({ outputs }: { outputs: { url: string; name: string; size: number; method: ExportMethod }[] }) {
+function Outputs({ outputs, canShare }: { outputs: ExportOutput[]; canShare: boolean }) {
   const single = outputs.length === 1;
   return (
     <div className="flex flex-col gap-4 border-t border-line pt-5" data-testid="outputs">
@@ -1418,6 +1475,7 @@ function Outputs({ outputs }: { outputs: { url: string; name: string; size: numb
               <a href={o.url} download={o.name} className="btn btn-secondary btn-sm">
                 <DownloadIcon size={15} /> Download {o.name}
               </a>
+              {o.name.endsWith(".mp4") && <ShareButton url={o.url} name={o.name} text={o.shareText} allowed={canShare} />}
             </span>
           </li>
         ))}

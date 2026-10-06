@@ -36,6 +36,8 @@ export interface ExportOptions {
   captions?: (items: ExportItem[], canvas: Canvas) => string | null;
   /** A bar along the bottom that fills as the video plays. */
   progressBar?: boolean;
+  /** Platform loudness (-14 LUFS). */
+  normalize?: boolean;
   /** Background music for one render's items (composed to fit them), or null for none. */
   music?: (items: ExportItem[], duration: number) => Promise<MusicTrack | null>;
   onProgress?: (ratio: number) => void;
@@ -49,7 +51,7 @@ export interface MusicTrack extends Omit<MusicMix, "path"> {
 
 /** Overlays, reframing and music change the picture or sound, which stream copy can't do. */
 const needsPixels = (o: ExportOptions) =>
-  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music) || Boolean(o.progressBar);
+  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music) || Boolean(o.progressBar) || Boolean(o.normalize);
 
 /** Which method an export of these items will use. */
 export function chooseMethod(items: ExportItem[], options: ExportOptions): ExportMethod {
@@ -118,6 +120,7 @@ async function render(
             captions: Boolean(ass),
             music,
             progressBar: options.progressBar,
+            normalize: options.normalize,
           }),
           output,
           { totalDuration, onProgress },
@@ -133,10 +136,13 @@ export function exportStitched(engine: VideoEngine, items: ExportItem[], options
   return render(engine, items, "stitched.mp4", options, options.onProgress);
 }
 
-/** Renders each item as its own MP4, one after another. */
+/**
+ * Renders each item as its own MP4, one after another. An entry can be a
+ * group of items joined into one part (e.g. a flash-forward intro + the clip).
+ */
 export async function exportParts(
   engine: VideoEngine,
-  items: ExportItem[],
+  items: (ExportItem | ExportItem[])[],
   options: ExportOptions,
   onPart?: (result: ExportResult, index: number) => void,
 ): Promise<ExportResult[]> {
@@ -144,7 +150,7 @@ export async function exportParts(
   const pad = String(items.length).length;
   for (const [i, item] of items.entries()) {
     const name = `part-${String(i + 1).padStart(Math.max(2, pad), "0")}.mp4`;
-    const result = await render(engine, [item], name, options, (r) =>
+    const result = await render(engine, Array.isArray(item) ? item : [item], name, options, (r) =>
       options.onProgress?.((i + r) / items.length),
     );
     results.push(result);

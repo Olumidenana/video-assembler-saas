@@ -89,6 +89,8 @@ export function groupWords(words: Word[], maxWords: number, maxChars: number): W
 export interface AssExtras {
   /** Big title over the opening seconds ("the hook"), shown with or without captions. */
   hook?: { text: string; seconds: number };
+  /** Closing call to action ("Follow for part 2") from `start` to `end` seconds. */
+  outro?: { text: string; start: number; end: number };
 }
 
 export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, extras: AssExtras = {}): string {
@@ -110,7 +112,16 @@ export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, e
   const events: string[] = [];
   const hook = extras.hook && clean(extras.hook.text).trim();
   if (hook && extras.hook) {
-    events.push(`Dialogue: 1,${assTime(0)},${assTime(extras.hook.seconds)},Hook,,0,0,0,,{\\fad(120,300)}${hook}`);
+    // Pops in (overshoots slightly, then settles): movement in the first second catches the eye.
+    events.push(
+      `Dialogue: 1,${assTime(0)},${assTime(extras.hook.seconds)},Hook,,0,0,0,,{\\fad(60,250)\\fscx70\\fscy70\\t(0,180,\\fscx106\\fscy106)\\t(180,280,\\fscx100\\fscy100)}${hook}`,
+    );
+  }
+  const outro = extras.outro && clean(extras.outro.text).trim();
+  if (outro && extras.outro && extras.outro.end > extras.outro.start) {
+    events.push(
+      `Dialogue: 1,${assTime(extras.outro.start)},${assTime(extras.outro.end)},Outro,,0,0,0,,{\\fad(150,0)\\fscx80\\fscy80\\t(0,200,\\fscx100\\fscy100)}${outro}`,
+    );
   }
   const line = (start: number, end: number, text: string) =>
     events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${text}`);
@@ -157,6 +168,8 @@ export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, e
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     styles[style],
+    // Outro: same look as the hook, lower third, so it never covers the hook's spot.
+    `Style: Outro,Anton,${Math.round(base * (portrait ? 0.075 : 0.06))},${WHITE},${WHITE},&HA0000000,&HA0000000,0,0,0,0,100,100,1,0,3,${Math.max(8, Math.round(base * 0.016))},0,2,${marginH},${marginH},${Math.round(H * (portrait ? 0.32 : 0.14))},1`,
     // Hook: Anton, top centre, on a translucent box so it reads over any picture.
     `Style: Hook,Anton,${Math.round(base * (portrait ? 0.085 : 0.07))},${WHITE},${WHITE},&HA0000000,&HA0000000,0,0,0,0,100,100,1,0,3,${Math.max(8, Math.round(base * 0.018))},0,8,${marginH},${marginH},${Math.round(H * (portrait ? 0.12 : 0.07))},1`,
     "",

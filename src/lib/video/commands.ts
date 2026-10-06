@@ -136,6 +136,8 @@ export interface Overlays {
   music?: MusicMix;
   /** A thin bar along the bottom that fills as the video plays (keeps people watching to the end). */
   progressBar?: boolean;
+  /** Even out loudness to -14 LUFS, the level TikTok, Reels and Shorts play at. */
+  normalize?: boolean;
 }
 
 export interface MusicMix {
@@ -272,6 +274,13 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     } else {
       filters.push(`[orig][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`);
     }
+  }
+
+  if (overlays.normalize) {
+    // Whatever produced the final audio now feeds the loudness normaliser instead.
+    const i = filters.findIndex((f) => f.includes("[aout]"));
+    filters[i] = filters[i].replace("[aout]", "[apre]");
+    filters.push(`[apre]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]`);
   }
 
   return [

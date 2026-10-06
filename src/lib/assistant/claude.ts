@@ -248,9 +248,9 @@ Be honest. Score 0-100 relative to typical short-form performance, not relative 
 For each clip write:
 - what: one plain sentence describing what happens.
 - why: one sentence on why it would or wouldn't work as a short.
-- hook: overlay text for the first 3 seconds, at most 6 words, no emoji, no hashtags, makes people want to keep watching without lying about the content.
+- hook: overlay text for the first 3 seconds, at most 6 words, no emoji, no hashtags. Viewers decide within about 1.5 seconds, so it must open a loop the clip closes. Use one technique that fits what you see: a curiosity gap ("Watch what happens when..."), stakes or a turning point ("This is where it all flips"), a pattern interrupt ("Don't blink"), a POV ("POV: you finally..."), or a specific outcome. Never use a greeting or setup, never promise something the clip doesn't deliver.
 - title: a post title (max 70 characters).
-- caption: a post caption (1-2 sentences) that matches the clip.
+- caption: a post caption (1-2 sentences) that matches the clip and invites a comment (a question or a take people will want to answer).
 - hashtags: 3-5 relevant hashtags.`;
 
 const VISION_SCHEMA = {

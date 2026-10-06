@@ -61,10 +61,23 @@ describe("hook title", () => {
   it("adds a top-centred hook for the opening seconds, even without captions", () => {
     const ass = buildAss([], "clean", canvas, { hook: { text: "He didn't see this {coming}", seconds: 3 } });
     expect(ass).toContain("Style: Hook,Anton,");
-    expect(ass).toMatch(/Dialogue: 1,0:00:00\.00,0:00:03\.00,Hook,,0,0,0,,\{\\fad\(120,300\)\}He didn't see this coming/);
+    expect(ass).toMatch(/Dialogue: 1,0:00:00\.00,0:00:03\.00,Hook,,0,0,0,,\{[^}]*\}He didn't see this coming/);
   });
 
   it("leaves the hook out when there's no text", () => {
     expect(buildAss([], "clean", canvas, { hook: { text: "  ", seconds: 3 } })).not.toContain("Dialogue: 1,");
+  });
+});
+
+describe("outro", () => {
+  it("adds a call to action over the last seconds, and the hook pops in", () => {
+    const ass = buildAss([], "clean", { width: 720, height: 1280, fps: 30 }, {
+      hook: { text: "Wait for the last 3 seconds", seconds: 3 },
+      outro: { text: "Follow for part 2", start: 28.4, end: 30 },
+    });
+    expect(ass).toContain("Style: Outro,Anton,");
+    expect(ass).toContain("Dialogue: 1,0:00:28.40,0:00:30.00,Outro,,0,0,0,,");
+    expect(ass).toContain("Follow for part 2");
+    expect(ass).toMatch(/Hook,,0,0,0,,\{\\fad\(60,250\)\\fscx70\\fscy70\\t\(0,180,/);
   });
 });

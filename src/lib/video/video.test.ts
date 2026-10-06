@@ -154,6 +154,20 @@ describe("command builders", () => {
     expect(graph).toContain("[vbar]null[vout]");
   });
 
+  it("evens out loudness to -14 LUFS after everything else", () => {
+    const plain = buildReencodeArgs([item()], { width: 720, height: 1280, fps: 30 }, "/out.mp4", { normalize: true });
+    const g1 = plain[plain.indexOf("-filter_complex") + 1];
+    expect(g1).toContain("concat=n=1:v=1:a=1[vout][apre]");
+    expect(g1).toMatch(/\[apre\]loudnorm=I=-14:TP=-1\.5:LRA=11,aresample=48000\[aout\]$/);
+    const mixed = buildReencodeArgs([item()], { width: 720, height: 1280, fps: 30 }, "/out.mp4", {
+      normalize: true,
+      music: { path: "/music.wav", volume: 0.6, original: 1, duck: true },
+    });
+    const g2 = mixed[mixed.indexOf("-filter_complex") + 1];
+    expect(g2).toContain("alimiter=limit=0.95[apre]");
+    expect(g2.split("[aout]")).toHaveLength(2);
+  });
+
   it("plays music alone when the original sound is off", () => {
     const args = buildReencodeArgs([item()], { width: 1280, height: 720, fps: 30 }, "/out.mp4", {
       music: { path: "/music.wav", volume: 1, original: 0, duck: true },
