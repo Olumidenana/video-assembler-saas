@@ -19,6 +19,13 @@ interface Tool {
 const TOOLS: Tool[] = [
   { id: "tool-start", label: "Add videos", icon: "➕" },
   {
+    id: "tool-pack",
+    label: "Clip Pack",
+    icon: "⚡",
+    note: (p) => `${PLAN_LIMITS[p].packClips} clip${PLAN_LIMITS[p].packClips === 1 ? "" : "s"}`,
+    needs: (p) => (PLAN_LIMITS[p].aiVision ? null : "Studio"),
+  },
+  {
     id: "tool-viral",
     label: "Viral clips",
     icon: "🔥",

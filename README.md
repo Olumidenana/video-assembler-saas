@@ -182,6 +182,20 @@ gaming, skits) clips start and end on shot changes and are scored on hook, build
 placement, intensity and cut pace; opening/ending theme songs in long videos are skipped. Highlights
 are built from a few whole moments. Auto picks Scenes for videos with 6+ cuts a minute.
 
+## Clip Pack and AI Vision
+
+**Clip Pack** (`src/app/editor/clip-pack.tsx`, `makeClipPack` in the editor) is the one-button
+workflow: pick a style (Anime & gaming edit, Podcast & talking, Story/vlog/skit) and a number of
+clips (Free 1, Pro 3, Studio 8). It finds the moments, applies the style's export settings (9:16,
+captions, hook title, progress bar, music), exports each clip as its own file and adds
+`post-kit.txt` with titles, captions and hashtags.
+
+**AI Vision** (Studio, `POST /api/viral/vision`, `judgeClipsVisually`): FFmpeg grabs four 384px
+JPEG stills from each top candidate (two per command; more exhausts the multi-threaded core's
+thread pool), and Claude judges what happens, whether it works as a short, and writes the hook,
+title and caption. Candidates are re-ranked by the verdicts. Only the stills leave the device.
+Costs 10 AI credits; if it's unavailable the pack carries on with the built-in picks.
+
 ## Music (`src/lib/audio/music.ts`)
 
 Original beats composed in the browser for each export (Phonk, Hype trap, Afro/Amapiano,

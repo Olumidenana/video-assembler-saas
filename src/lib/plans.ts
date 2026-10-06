@@ -22,6 +22,10 @@ export interface PlanLimits {
   brandLogo: boolean;
   /** AI (Claude) requests per day. Auto-edit and local commands don't count. */
   aiDailyLimit: number;
+  /** Finished clips per Clip Pack (one click: find, package, export). */
+  packClips: number;
+  /** AI Vision: Claude looks at frames to judge and write the clips. */
+  aiVision: boolean;
 }
 
 /**
@@ -40,6 +44,8 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     viralClipExports: 1,
     brandLogo: false,
     aiDailyLimit: 5,
+    packClips: 1,
+    aiVision: false,
   },
   pro: {
     label: "Pro",
@@ -51,6 +57,8 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     viralClipExports: 3,
     brandLogo: false,
     aiDailyLimit: 40,
+    packClips: 3,
+    aiVision: false,
   },
   studio: {
     label: "Studio",
@@ -62,6 +70,8 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     viralClipExports: Infinity,
     brandLogo: true,
     aiDailyLimit: 80,
+    packClips: 8,
+    aiVision: true,
   },
 };
 

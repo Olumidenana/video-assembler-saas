@@ -205,3 +205,139 @@ export async function planViralClips(
       ];
     });
 }
+
+/** One candidate clip for AI Vision: its timing, what the editor measured, and a few frames. */
+export interface VisionCandidate {
+  id: string;
+  start: number;
+  end: number;
+  /** Short context from the editor, e.g. measured signals or the opening line. */
+  notes: string;
+  /** JPEG frames, base64, in time order. */
+  frames: string[];
+}
+
+export interface VisionVerdict {
+  id: string;
+  /** 0–100: how likely to hold attention and get shared. */
+  score: number;
+  /** One line: what actually happens in the clip. */
+  what: string;
+  /** One line: why it would (or wouldn't) work as a short. */
+  why: string;
+  /** Overlay text for the first seconds: a few words, no emoji. */
+  hook: string;
+  title: string;
+  caption: string;
+  hashtags: string[];
+  /** False when the clip isn't worth posting (dull, confusing, mid-action cut). */
+  keep: boolean;
+}
+
+const VISION_SYSTEM = `You are a short-form video editor who has grown many TikTok, Reels and Shorts accounts. You are shown candidate clips from one longer video, each as a few frames in time order, with notes the editing software measured.
+
+Judge each clip as a stand-alone short:
+- What actually happens in it, from the frames (actions, expressions, reveals, text on screen, setting).
+- Hook: would the opening make someone stop scrolling?
+- Payoff: does something happen by the end, or does it fizzle or cut off mid-action?
+- Clarity: would it make sense to someone who hasn't seen the full video?
+- Emotion and shareability: funny, shocking, impressive, relatable, satisfying.
+
+Be honest. Score 0-100 relative to typical short-form performance, not relative to each other. Mark keep=false for clips that are dull, confusing, or end before the payoff. Only describe what is visible; if the frames are unclear, say so rather than guessing.
+
+For each clip write:
+- what: one plain sentence describing what happens.
+- why: one sentence on why it would or wouldn't work as a short.
+- hook: overlay text for the first 3 seconds, at most 6 words, no emoji, no hashtags, makes people want to keep watching without lying about the content.
+- title: a post title (max 70 characters).
+- caption: a post caption (1-2 sentences) that matches the clip.
+- hashtags: 3-5 relevant hashtags.`;
+
+const VISION_SCHEMA = {
+  type: "object",
+  properties: {
+    clips: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          score: { type: "integer" },
+          what: { type: "string" },
+          why: { type: "string" },
+          hook: { type: "string" },
+          title: { type: "string" },
+          caption: { type: "string" },
+          hashtags: { type: "array", items: { type: "string" } },
+          keep: { type: "boolean" },
+        },
+        required: ["id", "score", "what", "why", "hook", "title", "caption", "hashtags", "keep"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["clips"],
+  additionalProperties: false,
+};
+
+const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
+/** AI Vision: Claude looks at a few frames from each candidate and judges and writes it. */
+export async function judgeClipsVisually(candidates: VisionCandidate[]): Promise<VisionVerdict[]> {
+  const client = new Anthropic({ timeout: 90_000, maxRetries: 1 });
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [
+    { type: "text", text: `${candidates.length} candidate clips follow. Judge each one.` },
+  ];
+  for (const c of candidates) {
+    content.push({
+      type: "text",
+      text: `Clip id "${c.id}": ${mmss(c.start)}-${mmss(c.end)} (${Math.round(c.end - c.start)} s). Notes: ${c.notes}. ${c.frames.length} frames in time order:`,
+    });
+    for (const data of c.frames) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data } });
+  }
+
+  const response = await client.beta.messages.create({
+    model: MODEL,
+    max_tokens: 8000,
+    output_config: { effort: "low", format: { type: "json_schema", schema: VISION_SCHEMA } },
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    system: VISION_SYSTEM,
+    messages: [{ role: "user", content }],
+  });
+
+  if (response.stop_reason === "refusal") throw new AssistantError("AI Vision can't review this video.");
+  const text = response.content.find((b) => b.type === "text");
+  if (!text || text.type !== "text") throw new AssistantError("No answer from AI Vision.");
+  let parsed: { clips?: unknown };
+  try {
+    parsed = JSON.parse(text.text);
+  } catch {
+    throw new AssistantError("AI Vision's answer couldn't be read.");
+  }
+
+  const ids = new Set(candidates.map((c) => c.id));
+  const str = (v: unknown, len: number) => (typeof v === "string" ? v.trim().slice(0, len) : "");
+  return (Array.isArray(parsed.clips) ? parsed.clips : []).flatMap((c: Record<string, unknown>) => {
+    if (typeof c.id !== "string" || !ids.has(c.id)) return [];
+    ids.delete(c.id); // first verdict per clip wins
+    const score = typeof c.score === "number" && Number.isFinite(c.score) ? Math.max(0, Math.min(100, Math.round(c.score))) : 50;
+    return [
+      {
+        id: c.id,
+        score,
+        what: str(c.what, 200),
+        why: str(c.why, 200),
+        // The caption fonts can't draw emoji; keep the overlay short.
+        hook: str(c.hook, 60).replace(/\p{Extended_Pictographic}|️/gu, "").trim(),
+        title: str(c.title, 80),
+        caption: str(c.caption, 300),
+        hashtags: (Array.isArray(c.hashtags) ? c.hashtags : [])
+          .filter((h): h is string => typeof h === "string")
+          .slice(0, 6)
+          .map((h) => (h.startsWith("#") ? h : `#${h}`).replace(/\s+/g, "").slice(0, 40)),
+        keep: c.keep !== false,
+      },
+    ];
+  });
+}

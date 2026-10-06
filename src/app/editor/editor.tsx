@@ -21,6 +21,9 @@ import { composeWav } from "@/lib/audio/music";
 import { findClipsByScene, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
+import { ClipPack, type PackPreset } from "./clip-pack";
+// Type-only (erased at build time), so the server-only module never reaches the browser.
+import type { VisionVerdict } from "@/lib/assistant/claude";
 import { TaskBanner } from "./task-banner";
 import { WorkspaceNav } from "./workspace-nav";
 import { forgetThumbnails } from "./thumbnails";
@@ -458,7 +461,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     setTask(null);
   }
 
-  async function findViral(range: ViralRange, kind: VideoKind = "auto") {
+  async function findViral(range: ViralRange, kind: VideoKind = "auto"): Promise<{ clips: ViralClip[]; basis: "transcript" | "scenes" } | null> {
     const ids = [...new Set(timeline.segments.map((s) => s.clipId))];
     setViral(null);
     try {
@@ -495,9 +498,12 @@ export function Editor({ plan }: { plan: PlanId }) {
         }
         return findClipsByScene(id, timeline.clips[id].info.duration, analyses.current.get(id)!, opts);
       });
-      setViral({ clips: found.sort((a, b) => b.score - a.score).slice(0, 10), basis, improved: false, range });
+      const result = { clips: found.sort((a, b) => b.score - a.score).slice(0, 10), basis };
+      setViral({ ...result, improved: false, range });
+      return result;
     } catch (err) {
       if (!(err instanceof CancelledError)) setErrors((e) => [...e, "Couldn't analyse the video for viral clips. Please try again."]);
+      return null;
     } finally {
       setTask(null);
     }
@@ -594,28 +600,183 @@ export function Editor({ plan }: { plan: PlanId }) {
     } catch {}
   }
 
-  async function startExport(items = toExportItems(timeline), exportMode: ExportMode = mode) {
+  /**
+   * AI Vision (Studio): grabs four frames from each candidate, asks Claude to
+   * judge and write them, and returns the candidates re-ranked with the AI's
+   * title, caption, reasons and hook. Null if it isn't available; the caller
+   * carries on with the built-in picks.
+   */
+  async function reviewWithVision(candidates: ViralClip[]): Promise<{ clips: ViralClip[]; hooks: Map<string, string> } | null> {
+    const label = "AI Vision is looking at your clips…";
+    setTask({ label, progress: 0 });
+    try {
+      const payload = [];
+      for (const [i, c] of candidates.entries()) {
+        const len = c.end - c.start;
+        const frames = await engine.extractFrames(c.clipId, [0.15, 0.4, 0.65, 0.9].map((f) => c.start + len * f), 384);
+        payload.push({
+          id: c.id,
+          start: c.start,
+          end: c.end,
+          notes: `measured viral score ${c.score}; ${c.reasons.join(", ")}`,
+          frames: frames.flatMap((f) => (f ? [toBase64(f)] : [])),
+        });
+        setTask({ label, progress: ((i + 1) / candidates.length) * 0.4 });
+      }
+      setTask({ label: "AI Vision is judging your clips…", progress: null });
+      const res = await fetch("/api/viral/vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clips: payload }),
+      });
+      const body = (await res.json().catch(() => null)) as { clips?: VisionVerdict[]; error?: string } | null;
+      if (!res.ok || !body?.clips) {
+        const why: Record<string, string> = {
+          sign_in: "sign in to use it",
+          upgrade: "it's part of Studio",
+          limit: "today's AI credits are used up",
+          not_configured: "it isn't set up on this site yet",
+          busy: "the AI is busy",
+        };
+        setErrors((e) => [...e, `AI Vision was skipped (${why[body?.error ?? ""] ?? "it didn't respond"}). Your pack uses the built-in picks.`]);
+        return null;
+      }
+      const verdicts = new Map(body.clips.map((v) => [v.id, v]));
+      const hooks = new Map<string, string>();
+      const clips = candidates
+        .filter((c) => verdicts.has(c.id))
+        .map((c) => {
+          const v = verdicts.get(c.id)!;
+          if (v.hook) hooks.set(`${c.clipId}@${c.start.toFixed(2)}`, v.hook);
+          return {
+            ...c,
+            score: v.score,
+            hook: v.what || c.hook,
+            reasons: [v.why, ...c.reasons].filter(Boolean).slice(0, 3),
+            title: v.title || c.title,
+            caption: v.caption || c.caption,
+            hashtags: v.hashtags.length ? v.hashtags : c.hashtags,
+            keep: v.keep,
+          };
+        })
+        // Worth posting first, then by the AI's score.
+        .sort((a, b) => Number(b.keep) - Number(a.keep) || b.score - a.score)
+        .map((c) => {
+          const { keep, ...clip } = c;
+          void keep;
+          return clip;
+        });
+      return clips.length ? { clips, hooks } : null;
+    } catch (err) {
+      if (err instanceof CancelledError) throw err;
+      setErrors((e) => [...e, "AI Vision was skipped (something went wrong). Your pack uses the built-in picks."]);
+      return null;
+    } finally {
+      setTask(null);
+    }
+  }
+
+  /** Clip Pack: find the best moments, optionally let AI Vision judge them, and export finished posts. */
+  async function makeClipPack(preset: PackPreset, count: number, useVision: boolean) {
+    const range: ViralRange = { min: preset.range.min, max: preset.range.max, label: preset.range.label };
+    const found = await findViral(range, preset.kind);
+    if (!found) return;
+    if (found.clips.length === 0) {
+      setErrors((e) => [...e, "No clips stood out in that length range. Try another pack style or a longer video."]);
+      return;
+    }
+    const wanted = Math.min(count, limits.packClips);
+    let picks = found.clips;
+    let hooks = new Map<string, string>();
+    if (useVision && limits.aiVision) {
+      try {
+        const reviewed = await reviewWithVision(found.clips.slice(0, Math.min(8, wanted + 3)));
+        if (reviewed) {
+          picks = reviewed.clips;
+          hooks = reviewed.hooks;
+          setViral({ clips: picks, basis: found.basis, improved: true, range });
+        }
+      } catch (err) {
+        if (err instanceof CancelledError) return;
+      }
+    }
+    picks = picks.slice(0, wanted);
+    for (const c of picks) {
+      const key = `${c.clipId}@${c.start.toFixed(2)}`;
+      if (!hooks.has(key)) hooks.set(key, found.basis === "scenes" ? c.caption : c.title);
+    }
+
+    const packSettings: ExportSettings = {
+      ...settings,
+      aspect: "9:16",
+      fit: "blur",
+      captions: preset.captions,
+      captionStyle: limits.captionStyles === "all" ? preset.captionStyle : "clean",
+      hook: { on: true, text: "" },
+      progressBar: true,
+      music: preset.music === "none" ? { ...settings.music, style: "none" } : { ...settings.music, style: preset.music, volume: preset.id === "story" ? 0.35 : 0.6 },
+    };
+    setSettings(packSettings);
+    const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+    const postKit = [
+      `Clip Pack: ${preset.label} (${picks.length} clip${picks.length === 1 ? "" : "s"})`,
+      "",
+      ...picks.flatMap((c, i) => [
+        `PART ${String(i + 1).padStart(2, "0")} · ${timeline.clips[c.clipId]?.file.name ?? "video"} ${mmss(c.start)}-${mmss(c.end)} · score ${c.score}`,
+        // Scene picks without AI Vision are titled "Scene 2 · 6:30"; their hook line reads better.
+        `Title: ${/^Scene \d/.test(c.title) ? c.caption : c.title}`,
+        `Caption: ${c.caption}`,
+        `Hashtags: ${c.hashtags.join(" ")}`,
+        ...(c.reasons.length ? [`Why: ${c.reasons.join("; ")}`] : []),
+        "",
+      ]),
+    ].join("\n");
+    document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
+    await startExport(
+      picks.map((c) => ({ clipId: c.clipId, info: timeline.clips[c.clipId].info, start: c.start, end: c.end })),
+      "parts",
+      { settings: packSettings, hooks, postKit },
+    );
+  }
+
+  /**
+   * Exports `items`. A Clip Pack passes its own settings (it changes them and
+   * exports in the same click, before React state updates land), the hook
+   * text for each clip, and a post kit to save alongside the videos.
+   */
+  async function startExport(
+    items = toExportItems(timeline),
+    exportMode: ExportMode = mode,
+    run: { settings?: ExportSettings; hooks?: Map<string, string>; postKit?: string } = {},
+  ) {
+    let s = run.settings ?? settings;
     if (exportMode === "stitch" && new Set(items.map((i) => i.clipId)).size > limits.maxStitchClips) {
       setExportState({ status: "error", message: `The ${limits.label} plan stitches up to ${limits.maxStitchClips} videos. Upgrade to Pro for unlimited.` });
       return;
     }
     clearOutputs();
-    if (settings.captions) {
+    if (s.captions) {
       try {
         await ensureTranscripts([...new Set(items.map((i) => i.clipId))]);
       } catch (err) {
         setTask(null);
         if (err instanceof CancelledError) return;
-        setExportState({
-          status: "error",
-          message: "Couldn't create captions (the speech model didn't load). Check your connection, or turn captions off and export again.",
-        });
-        return;
+        if (run.settings) {
+          // A Clip Pack still delivers its clips, just without captions.
+          s = { ...s, captions: false };
+          setErrors((e) => [...e, "Captions were skipped: the speech model didn't load. Check your connection and export again for captions."]);
+        } else {
+          setExportState({
+            status: "error",
+            message: "Couldn't create captions (the speech model didn't load). Check your connection, or turn captions off and export again.",
+          });
+          return;
+        }
       } finally {
         setTask(null);
       }
     }
-    const music = settings.music;
+    const music = s.music;
     const composed = music.style !== "none" && music.style !== "own" ? music.style : null;
     if (composed) {
       // The drop is lined up with the biggest moment, so every clip needs its analysis.
@@ -632,26 +793,26 @@ export function Editor({ plan }: { plan: PlanId }) {
       }
     }
     setExportState({ status: "running", progress: 0 });
-    const style = limits.captionStyles === "all" ? settings.captionStyle : "clean";
+    const style = limits.captionStyles === "all" ? s.captionStyle : "clean";
     const options = {
       maxShortSide: limits.maxShortSide,
       fastCut,
-      aspect: settings.aspect,
-      fit: settings.fit,
+      aspect: s.aspect,
+      fit: s.fit,
       watermark: limits.watermark,
       logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
       captions:
-        settings.captions || settings.hook.on
+        s.captions || s.hook.on
           ? (renderItems: ExportItem[], canvas: Parameters<typeof buildAss>[2]) => {
-              const words = settings.captions
+              const words = s.captions
                 ? wordsForOutput(renderItems, Object.fromEntries(transcripts.current), limits.captionSeconds)
                 : [];
-              const hookText = settings.hook.on ? hookFor(renderItems) : null;
+              const hookText = s.hook.on ? hookFor(renderItems, s, run.hooks) : null;
               if (!words.length && !hookText) return null;
               return buildAss(words, style, canvas, hookText ? { hook: { text: hookText, seconds: 3 } } : {});
             }
           : undefined,
-      progressBar: settings.progressBar,
+      progressBar: s.progressBar,
       music:
         composed || (music.style === "own" && ownTrack)
           ? async (renderItems: ExportItem[], duration: number) => {
@@ -671,6 +832,12 @@ export function Editor({ plan }: { plan: PlanId }) {
         outputUrls.current.push(url);
         return { url, name: r.name, size: r.blob.size, method: r.method };
       });
+      if (run.postKit) {
+        const kit = new Blob([run.postKit], { type: "text/plain" });
+        const url = URL.createObjectURL(kit);
+        outputUrls.current.push(url);
+        outputs.push({ url, name: "post-kit.txt", size: kit.size, method: "copy" });
+      }
       setExportState({ status: "done", outputs });
     } catch (err) {
       if (err instanceof CancelledError) {
@@ -692,12 +859,14 @@ export function Editor({ plan }: { plan: PlanId }) {
    * clip being exported (scene clips get their caption, since "Scene 2 · 6:30"
    * isn't a hook). Null when there's nothing to say.
    */
-  function hookFor(renderItems: ExportItem[]): string | null {
+  function hookFor(renderItems: ExportItem[], s: ExportSettings = settings, hooks?: Map<string, string>): string | null {
     // The caption fonts have no emoji, so they'd burn in as empty boxes.
     const plain = (t: string) => t.replace(/\p{Extended_Pictographic}|\uFE0F/gu, "").replace(/\s+/g, " ").trim();
-    const custom = plain(settings.hook.text);
+    const custom = plain(s.hook.text);
     if (custom) return custom;
     const first = renderItems[0];
+    const given = first && hooks?.get(`${first.clipId}@${first.start.toFixed(2)}`);
+    if (given) return plain(given) || null;
     const clip = viral?.clips.find((c) => c.clipId === first?.clipId && Math.abs(c.start - first.start) < 0.3);
     if (!clip) return null;
     return plain(viral?.basis === "scenes" ? clip.caption : clip.title) || "Wait for it…";
@@ -876,6 +1045,10 @@ export function Editor({ plan }: { plan: PlanId }) {
               void engine.load().catch(() => setEngineStatus("error"));
             }}
           />
+        )}
+
+        {segments.length > 0 && (
+          <ClipPack limits={limits} busy={Boolean(task) || running || engineStatus !== "ready"} onMake={(p, n, v) => void makeClipPack(p, n, v)} />
         )}
 
         {segments.length > 0 && (
@@ -1238,3 +1411,10 @@ const GOAL_NEXT: Record<Exclude<Goal, "stitch">, string> = {
   highlight: "making a 30s highlight",
   captions: "setting up captions for 9:16",
 };
+
+/** Base64 of bytes, in chunks (spreading a large array into one call overflows the stack). */
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}

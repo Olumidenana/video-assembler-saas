@@ -313,6 +313,33 @@ export class VideoEngine {
     }
   }
 
+  /**
+   * Still frames (JPEG) at the given times, `width` pixels wide, decoded by
+   * FFmpeg so it works for every format the editor accepts (MKV, HEVC…), not
+   * just what the browser can play. Missing frames (past the end) come back
+   * as null.
+   */
+  async extractFrames(clipId: string, times: number[], width = 384): Promise<(Uint8Array | null)[]> {
+    const frames: (Uint8Array | null)[] = [];
+    // Two inputs per command: each opens its own decoder, and three or more
+    // exhaust the multi-threaded core's fixed thread pool.
+    for (let i = 0; i < times.length; i += 2) {
+      const batch = times.slice(i, i + 2);
+      const outputs = batch.map((_, k) => `/frame-${k}.jpg`);
+      const args = [
+        ...batch.flatMap((t) => ["-threads", "1", "-ss", Math.max(0, t).toFixed(3), "-i", clipPath(clipId)]),
+        ...batch.flatMap((_, k) => ["-map", `${k}:v:0`, "-frames:v", "1", "-vf", `scale=${width}:-2`, "-q:v", "5", "-threads", "1", outputs[k]]),
+      ];
+      const files = await this.execute([clipId], args, { totalDuration: 0 }, {}, outputs, async (ffmpeg) => {
+        const out: (Uint8Array | null)[] = [];
+        for (const path of outputs) out.push(((await ffmpeg.readFile(path).catch(() => null)) as Uint8Array | null) ?? null);
+        return out;
+      });
+      frames.push(...files);
+    }
+    return frames;
+  }
+
   /** Decodes part of a clip's audio as 16 kHz mono float samples (speech recognition input). */
   async extractAudio(clipId: string, start: number, duration: number): Promise<Float32Array> {
     const out = "/speech.f32";

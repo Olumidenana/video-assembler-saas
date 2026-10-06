@@ -10,7 +10,7 @@ vi.mock("@anthropic-ai/sdk", () => {
   return { default: Anthropic };
 });
 
-let viewer: { user: { id: string } | null; plan: "free" | "pro" } = { user: { id: "u1" }, plan: "free" };
+let viewer: { user: { id: string } | null; plan: "free" | "pro" | "studio" } = { user: { id: "u1" }, plan: "free" };
 vi.mock("@/lib/billing/account", () => ({ getViewer: async () => viewer }));
 
 let allowed = true;
@@ -128,5 +128,49 @@ describe("planViralClips", () => {
     const params = create.mock.calls[0][0];
     expect(params.system).toContain("content psychology");
     expect(params.messages[0].content).toContain("[2] (10.0-14.0s) Sentence 2.");
+  });
+});
+
+describe("AI Vision", () => {
+  const jpeg = "/9j/" + "A".repeat(400);
+  const clip = (id: string) => ({ id, start: 10, end: 30, notes: "Peak at 0:18", frames: [jpeg, jpeg] });
+
+  it("sends each clip's frames as images and validates the verdicts", async () => {
+    const { judgeClipsVisually } = await import("./claude");
+    create.mockResolvedValue(
+      reply({
+        clips: [
+          { id: "a", score: 140, what: "A fighter lands the final blow.", why: "Clear payoff.", hook: "He didn't see it coming 😳", title: "The final blow", caption: "Wait for it", hashtags: ["anime", "#edit"], keep: true },
+          { id: "zz", score: 90, what: "", why: "", hook: "", title: "", caption: "", hashtags: [], keep: true },
+          { id: "b", score: 20, what: "Two people talk.", why: "Slow.", hook: "Listen", title: "Talk", caption: "", hashtags: [], keep: false },
+        ],
+      }),
+    );
+    const verdicts = await judgeClipsVisually([clip("a"), clip("b")]);
+    expect(verdicts.map((v) => [v.id, v.score, v.keep])).toEqual([
+      ["a", 100, true],
+      ["b", 20, false],
+    ]);
+    expect(verdicts[0].hook).toBe("He didn't see it coming");
+    expect(verdicts[0].hashtags).toEqual(["#anime", "#edit"]);
+    const content = create.mock.calls[0][0].messages[0].content;
+    expect(content.filter((b: { type: string }) => b.type === "image")).toHaveLength(4);
+    expect(content[2]).toEqual({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: jpeg } });
+  });
+
+  it("is Studio-only and charges 10 AI credits", async () => {
+    const { POST: vision } = await import("@/app/api/viral/vision/route");
+    const req = (clips: unknown) => new NextRequest("http://x/api/viral/vision", { method: "POST", body: JSON.stringify({ clips }) });
+
+    viewer = { user: { id: "u1" }, plan: "pro" };
+    expect((await vision(req([clip("a")]))).status).toBe(402);
+
+    viewer = { user: { id: "u1" }, plan: "studio" };
+    expect((await vision(req([{ ...clip("a"), frames: ["not-a-jpeg"] }]))).status).toBe(400);
+
+    create.mockResolvedValue(reply({ clips: [{ id: "a", score: 80, what: "x", why: "y", hook: "z", title: "t", caption: "c", hashtags: [], keep: true }] }));
+    const res = await vision(req([clip("a")]));
+    expect(res.status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith("consume_ai_request", { p_user_id: "u1", p_limit: 80, p_cost: 10 });
   });
 });
