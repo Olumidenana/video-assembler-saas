@@ -14,7 +14,7 @@ const FREE = [
   "AI best moments & silence removal",
   `Auto-captions on the first ${PLAN_LIMITS.free.captionSeconds}s`,
   "Find viral clips and export the top one",
-  `Mashups of ${PLAN_LIMITS.free.mashupVideos} videos, with transitions & music`,
+  `Beat-synced edits & mashups of ${PLAN_LIMITS.free.mashupVideos} videos`,
   `Exports up to ${PLAN_LIMITS.free.maxShortSide}p, with a small watermark`,
 ];
 
@@ -25,14 +25,14 @@ const PRO = [
   "Auto-captions on the whole video",
   `Export the top ${PLAN_LIMITS.pro.viralClipExports} viral clips per video`,
   `Clip Pack: ${PLAN_LIMITS.pro.packClips} finished posts in one click`,
-  `Mashups of up to ${PLAN_LIMITS.pro.mashupVideos} videos`,
+  `Edits & mashups of up to ${PLAN_LIMITS.pro.mashupVideos} videos`,
   "Everything in Free",
 ];
 
 const STUDIO = [
   "Unlimited viral clips from every video",
   "AI Vision: watches your clips, picks the best & writes the hooks",
-  `AI Theme Match: mashups of up to ${PLAN_LIMITS.studio.mashupVideos} videos grouped by story`,
+  `AI Theme Match: edits of up to ${PLAN_LIMITS.studio.mashupVideos} videos built around a story`,
   `Clip Pack: ${PLAN_LIMITS.studio.packClips} posts at once, shared straight to your apps`,
   "Viral score: hook, curiosity, emotion & payoff",
   "Post kit: titles, captions & hashtags per clip",

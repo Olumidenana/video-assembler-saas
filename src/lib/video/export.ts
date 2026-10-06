@@ -13,7 +13,7 @@ import {
 } from "./commands";
 import type { VideoEngine } from "./engine";
 import { clipPath } from "./commands";
-import { chunkTransitions, hasTransitions, MAX_TRANSITION_INPUTS, outputDuration } from "./transitions";
+import { chunkTransitions, hasTransitions, MAX_EDIT_INPUTS, MAX_TRANSITION_INPUTS, outputDuration, outputStarts } from "./transitions";
 import type { ExportItem } from "./types";
 
 export type ExportMethod = "copy" | "reencode";
@@ -42,6 +42,8 @@ export interface ExportOptions {
   normalize?: boolean;
   /** Seconds of end card after the clip (last frame held and dimmed). */
   endCard?: number;
+  /** Cut on exact frames of one grid (beat-synced edits). */
+  frameExact?: boolean;
   /** Background music for one render's items (composed to fit them), or null for none. */
   music?: (items: ExportItem[], duration: number) => Promise<MusicTrack | null>;
   onProgress?: (ratio: number) => void;
@@ -55,7 +57,7 @@ export interface MusicTrack extends Omit<MusicMix, "path"> {
 
 /** Overlays, reframing and music change the picture or sound, which stream copy can't do. */
 const needsPixels = (o: ExportOptions) =>
-  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music) || Boolean(o.progressBar) || Boolean(o.normalize);
+  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music) || Boolean(o.progressBar) || Boolean(o.normalize) || Boolean(o.frameExact);
 
 /** Which method an export of these items will use. */
 export function chooseMethod(items: ExportItem[], options: ExportOptions): ExportMethod {
@@ -111,8 +113,11 @@ async function render(
   // browser's FFmpeg deadlocks on bigger transition graphs), then join those.
   let renderItems = items;
   let mountIds = clipIds;
-  if (method === "reencode" && hasTransitions(items) && items.length > MAX_TRANSITION_INPUTS) {
-    const { chunks, joins } = chunkTransitions(items);
+  const chunkSize = hasTransitions(items) ? MAX_TRANSITION_INPUTS : options.frameExact ? MAX_EDIT_INPUTS : Infinity;
+  if (method === "reencode" && items.length > chunkSize) {
+    const { chunks, joins } = chunkTransitions(items, chunkSize);
+    const starts = outputStarts(items);
+    let first = 0;
     const steps = chunks.length + 1.5; // the final pass carries the overlays and audio: weigh it more
     renderItems = [];
     for (const [c, chunk] of chunks.entries()) {
@@ -120,7 +125,11 @@ async function render(
       const len = outputDuration(chunk);
       const piece = await engine.run(
         [...new Set(chunk.map((i) => i.clipId))],
-        buildReencodeArgs(chunk, canvas, path, { fit: options.aspect && options.aspect !== "original" ? (options.fit ?? "crop") : undefined, intermediate: true }),
+        buildReencodeArgs(chunk, canvas, path, {
+          fit: options.aspect && options.aspect !== "original" ? (options.fit ?? "crop") : undefined,
+          intermediate: true,
+          frameExact: options.frameExact ? { origin: starts[first] } : undefined,
+        }),
         path,
         { totalDuration: len, onProgress: (r) => onProgress?.((c + r) / steps) },
       );
@@ -133,6 +142,7 @@ async function render(
         end: len,
         transitionIn: joins[c],
       });
+      first += chunk.length;
     }
     mountIds = [];
     const done = chunks.length / steps;
@@ -161,6 +171,7 @@ async function render(
             progressBar: options.progressBar,
             normalize: options.normalize,
             endCard,
+            frameExact: options.frameExact ? { origin: 0 } : undefined,
           }),
           output,
           { totalDuration: totalDuration + endCard, onProgress },

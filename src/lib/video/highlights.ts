@@ -391,7 +391,7 @@ export function mergeClose(ranges: Range[], gap: number): Range[] {
  * first gets near that peak. Skips the first and last second and a half so
  * the build-up and outro have room. Without analyses, a quarter of the way in.
  */
-export function outputPeak(items: Pick<ExportItem, "clipId" | "start" | "end" | "transitionIn">[], analyses: Map<string, ClipAnalysis>): number {
+export function outputPeak(items: Pick<ExportItem, "clipId" | "start" | "end" | "transitionIn" | "speed">[], analyses: Map<string, ClipAnalysis>): number {
   const total = outputDuration(items);
   const starts = outputStarts(items);
   const fallback = Math.round(Math.min(2, total / 4) * 100) / 100;
@@ -402,7 +402,7 @@ export function outputPeak(items: Pick<ExportItem, "clipId" | "start" | "end" | 
     if (a) {
       for (let bin = Math.floor(item.start / BIN_SECONDS); bin * BIN_SECONDS < item.end && bin < a.motion.length; bin++) {
         points.push({
-          t: offset + Math.max(0, bin * BIN_SECONDS - item.start),
+          t: offset + Math.max(0, bin * BIN_SECONDS - item.start) / (item.speed ?? 1),
           loud: a.hasAudio ? Math.max(SILENCE_DB, a.loudness[bin] ?? SILENCE_DB) : 0,
           motion: a.cuts[bin] > 0.3 ? 0 : a.motion[bin],
         });

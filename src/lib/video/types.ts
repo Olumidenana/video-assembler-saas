@@ -44,4 +44,19 @@ export interface ExportItem {
   flashIn?: boolean;
   /** Blend in from the previous item (overlaps it; see transitions.ts). */
   transitionIn?: Transition;
+  /** Playback speed: 0.5 = half-speed slow motion (plays twice as long as the source range). */
+  speed?: number;
+  /** Beat-edit effects at the start of the segment, on the cut. */
+  fx?: SegmentFx;
+}
+
+export interface SegmentFx {
+  /** Fade in from white over this many seconds (a flash on the beat). */
+  flash?: number;
+  /** Fade in from black over this many seconds (a soft dip, for emotional cuts). */
+  dip?: number;
+  /** Zoom punch: starts zoomed in and snaps back over the first quarter second. */
+  punch?: boolean;
+  /** Camera shake that settles over the first third of a second (an impact). */
+  shake?: boolean;
 }

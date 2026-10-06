@@ -159,13 +159,13 @@ describe("command builders", () => {
     const plain = buildReencodeArgs([item()], { width: 720, height: 1280, fps: 30 }, "/out.mp4", { normalize: true });
     const g1 = plain[plain.indexOf("-filter_complex") + 1];
     expect(g1).toContain("concat=n=1:v=1:a=1[vout][apre]");
-    expect(g1).toMatch(/\[apre\]loudnorm=I=-14:TP=-1\.5:LRA=11,aresample=48000\[aout\]$/);
+    expect(g1).toMatch(/\[apre\]loudnorm=I=-14:TP=-1\.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo\[aout\]$/);
     const mixed = buildReencodeArgs([item()], { width: 720, height: 1280, fps: 30 }, "/out.mp4", {
       normalize: true,
       music: { path: "/music.wav", volume: 0.6, original: 1, duck: true },
     });
     const g2 = mixed[mixed.indexOf("-filter_complex") + 1];
-    expect(g2).toContain("alimiter=limit=0.95[apre]");
+    expect(g2).toContain("alimiter=limit=0.95,aformat=channel_layouts=stereo[apre]");
     expect(g2.split("[aout]")).toHaveLength(2);
   });
 
@@ -220,6 +220,32 @@ describe("command builders", () => {
     expect(joins).toEqual([undefined, { type: "fade", duration: 0.4 }, { type: "fade", duration: 0.6 }]);
     const joined = chunks.map((c, i) => ({ start: 0, end: outputDuration(c), transitionIn: joins[i] }));
     expect(outputDuration(joined)).toBeCloseTo(outputDuration(items), 3);
+  });
+
+  it("cuts beat edits on exact frames of one grid, with slow motion and on-the-beat effects", () => {
+    const beat = 60 / 130;
+    const items = [
+      item({ start: 10, end: 10 + 4 * beat, fx: { dip: 0.3 } }),
+      item({ clipId: "b", start: 50, end: 50 + beat, fx: { flash: 0.1, punch: true } }),
+      item({ start: 80, end: 80 + beat, fx: { shake: true } }),
+      item({ clipId: "b", start: 90, end: 90 + 2 * beat, speed: 0.5 }),
+    ];
+    expect(outputDuration(items)).toBeCloseTo(10 * beat, 3);
+    const args = buildReencodeArgs(items, { width: 720, height: 1280, fps: 30 }, "/out.mp4", { frameExact: { origin: 0 } });
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    // Boundaries at 0, 4, 5, 6, 10 beats, each rounded to the nearest frame: 0, 55, 69, 83, 138.
+    expect([...graph.matchAll(/trim=end_frame=(\d+)/g)].map((m) => Number(m[1]))).toEqual([55, 14, 14, 55]);
+    expect(graph).toContain("fade=t=in:st=0:d=0.300:color=black");
+    expect(graph).toContain("zoompan=z='max(1,1.25-it)'");
+    expect(graph).toContain("fade=t=in:st=0:d=0.100:color=white");
+    expect(graph).toContain("crop=720:1280:x='(iw-ow)/2*(1+sin(t*55)*max(0,1-t/0.35))'");
+    expect(graph).toContain("setsar=1,setpts=(PTS-STARTPTS)/0.5,fps=30");
+    expect(graph).toContain("atempo=0.5,apad,atrim=end=1.833");
+    // A chunk that starts later on the grid rounds against the same grid.
+    const later = buildReencodeArgs(items.slice(1), { width: 720, height: 1280, fps: 30 }, "/out.mkv", { frameExact: { origin: 4 * beat }, intermediate: true });
+    const g2 = later[later.indexOf("-filter_complex") + 1];
+    expect([...g2.matchAll(/trim=end_frame=(\d+)/g)].map((m) => Number(m[1]))).toEqual([14, 14, 55]);
+    expect(later).toContain("pcm_s16le");
   });
 
   it("plays music alone when the original sound is off", () => {

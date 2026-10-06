@@ -27,7 +27,7 @@ const TOOLS: Tool[] = [
   },
   {
     id: "tool-mashup",
-    label: "Mashup",
+    label: "Edits & mashups",
     icon: "🎞️",
     note: (p) => `${PLAN_LIMITS[p].mashupVideos} videos`,
     needs: (p) => (PLAN_LIMITS[p].aiVision ? null : "Studio"),

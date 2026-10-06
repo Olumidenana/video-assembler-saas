@@ -1,5 +1,5 @@
-import { hasTransitions, outputDuration, overlaps } from "./transitions";
-import type { ExportItem, MediaInfo } from "./types";
+import { hasTransitions, outputDuration, outputStarts, overlaps, playLength } from "./transitions";
+import type { ExportItem, MediaInfo, SegmentFx } from "./types";
 
 /** Where a clip's file is mounted (read-only WORKERFS) inside the FFmpeg virtual FS. */
 export const clipDir = (clipId: string) => `/in/${clipId}`;
@@ -143,6 +143,12 @@ export interface Overlays {
   endCard?: number;
   /** A piece that will be re-encoded again (chunked transitions): higher quality, lossless sound, Matroska. */
   intermediate?: boolean;
+  /**
+   * Cut every segment on whole frames of one grid (beat-synced edits). `origin`
+   * is where this render starts in the finished video, so chunks rendered
+   * separately land on the same grid.
+   */
+  frameExact?: { origin: number };
 }
 
 export interface MusicMix {
@@ -156,10 +162,44 @@ export interface MusicMix {
   duck: boolean;
 }
 
-/** Fits one input onto the canvas: letterbox, fill-and-crop, or fit over a blurred copy. */
-function fitFilter(input: string, out: string, W: number, H: number, fps: number, fit: Fit | "letterbox", flashIn = false): string {
+interface FitExtras {
+  /** Legacy flash cut after a cold open (0.3 s from white). */
+  flashIn?: boolean;
+  speed?: number;
+  fx?: SegmentFx;
+  /** Exact frame count to keep (beat-synced edits). */
+  frames?: number;
+}
+
+/** The per-segment effects of a beat edit, applied after the segment is on the canvas. */
+function effectFilters(W: number, H: number, fps: number, { flashIn, fx }: FitExtras): string {
+  const out: string[] = [];
   // A flash cut: the segment fades in from white, the classic edit transition after a cold open.
-  const tail = `setsar=1,fps=${fps},format=yuv420p,setpts=PTS-STARTPTS${flashIn ? ",fade=t=in:st=0:d=0.3:color=white" : ""}[${out}]`;
+  if (flashIn) out.push("fade=t=in:st=0:d=0.3:color=white");
+  if (fx?.punch) {
+    // Starts 25% zoomed in and snaps back to normal over the first quarter second.
+    out.push(`zoompan=z='max(1,1.25-it)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${W}x${H}:fps=${fps}`);
+  }
+  if (fx?.shake) {
+    // A little zoomed in, so the frame can move; the shake settles within a third of a second.
+    const sw = even(W * 1.08);
+    const sh = even(H * 1.08);
+    out.push(
+      `scale=${sw}:${sh},crop=${W}:${H}:x='(iw-ow)/2*(1+sin(t*55)*max(0,1-t/0.35))':y='(ih-oh)/2*(1+cos(t*47)*max(0,1-t/0.35))'`,
+    );
+  }
+  if (fx?.flash) out.push(`fade=t=in:st=0:d=${secs(fx.flash)}:color=white`);
+  if (fx?.dip) out.push(`fade=t=in:st=0:d=${secs(fx.dip)}:color=black`);
+  // zoompan and scale+crop change the sample aspect ratio, which concat rejects.
+  if (fx?.punch || fx?.shake) out.push("setsar=1");
+  return out.map((f) => `,${f}`).join("");
+}
+
+/** Fits one input onto the canvas: letterbox, fill-and-crop, or fit over a blurred copy. */
+function fitFilter(input: string, out: string, W: number, H: number, fps: number, fit: Fit | "letterbox", extras: FitExtras = {}): string {
+  const speed = extras.speed && extras.speed !== 1 ? `setpts=(PTS-STARTPTS)/${extras.speed},` : "";
+  const trim = extras.frames ? `,trim=end_frame=${extras.frames}` : "";
+  const tail = `setsar=1,${speed}fps=${fps},format=yuv420p,setpts=PTS-STARTPTS${effectFilters(W, H, fps, extras)}${trim}[${out}]`;
   if (fit === "crop") {
     return `${input}scale=${W}:${H}:force_original_aspect_ratio=increase:force_divisible_by=2,crop=${W}:${H},${tail}`;
   }
@@ -191,20 +231,30 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
   const filters: string[] = [];
   const pairs: string[] = [];
 
+  const grid = overlays.frameExact;
+  const starts = outputStarts(items);
   items.forEach((item, i) => {
-    const duration = secs(item.end - item.start);
+    const speed = item.speed && item.speed > 0 ? item.speed : 1;
+    const source = item.end - item.start;
+    // Beat-synced edits: every cut is rounded to the frame nearest its beat on
+    // one global grid, so cuts never drift off the music, however many there are.
+    const frames = grid
+      ? Math.max(1, Math.round((grid.origin + starts[i] + playLength(item)) * fps) - Math.round((grid.origin + starts[i]) * fps))
+      : undefined;
+    const duration = secs(frames ? frames / fps : source / speed);
     // Input seeking (-ss before -i) jumps close to the start point instead of
     // decoding from the beginning, and stays frame-accurate when re-encoding.
+    // Exact cuts read a little extra, so there's always a frame to trim to.
     inputs.push(
       "-threads", String(decoderThreads(items.length)),
-      "-ss", secs(item.start), "-t", duration, "-i", clipPath(item.clipId),
+      "-ss", secs(item.start), "-t", secs(frames ? source + 0.2 : source), "-i", clipPath(item.clipId),
     );
 
-    filters.push(fitFilter(`[${i}:v:0]`, `v${i}`, W, H, fps, overlays.fit ?? "letterbox", item.flashIn));
+    filters.push(fitFilter(`[${i}:v:0]`, `v${i}`, W, H, fps, overlays.fit ?? "letterbox", { flashIn: item.flashIn, speed, fx: item.fx, frames }));
     filters.push(
       item.info.audioCodec
         ? `[${i}:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
-            `apad,atrim=end=${duration},asetpts=PTS-STARTPTS[a${i}]`
+            `${speed !== 1 ? `atempo=${speed},` : ""}apad,atrim=end=${duration},asetpts=PTS-STARTPTS[a${i}]`
         : `anullsrc=r=48000:cl=stereo,atrim=end=${duration},asetpts=PTS-STARTPTS[a${i}]`,
     );
     pairs.push(`[v${i}][a${i}]`);
@@ -225,7 +275,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     const frame = 1 / fps;
     const pieces: string[] = [];
     items.forEach((item, i) => {
-      const len = item.end - item.start;
+      const len = playLength(item);
       const dIn = o[i];
       const dOut = o[i + 1] ?? 0;
       const parts = [dIn > 0 && "h", "b", dOut > 0 && "t"].filter((x): x is string => Boolean(x));
@@ -331,10 +381,10 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
         `[musin]volume=0.55[muswet]`,
         `[muswet][origkey]sidechaincompress=threshold=0.04:ratio=8:attack=20:release=400[musduck]`,
         `[musdry]volume=0.45[musfloor]`,
-        `[origmix][musduck][musfloor]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`,
+        `[origmix][musduck][musfloor]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95,aformat=channel_layouts=stereo[aout]`,
       );
     } else {
-      filters.push(`[orig][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`);
+      filters.push(`[orig][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95,aformat=channel_layouts=stereo[aout]`);
     }
   }
 
@@ -342,12 +392,14 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     // Whatever produced the final audio now feeds the loudness normaliser instead.
     const i = filters.findIndex((f) => f.includes("[aout]"));
     filters[i] = filters[i].replace("[aout]", "[apre]");
-    filters.push(`[apre]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]`);
+    filters.push(`[apre]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo[aout]`);
   }
 
   return [
     ...inputs,
-    "-filter_complex_threads", String(FILTER_THREADS),
+    // The multi-threaded core has a fixed thread pool; with more inputs (each a
+    // demuxer thread) slice-threaded filters (fade, xfade) exhaust it and hang.
+    "-filter_complex_threads", String(items.length <= 3 ? FILTER_THREADS : 1),
     "-filter_complex", filters.join(";"),
     "-map", "[vout]", "-map", "[aout]",
     "-c:v", "libx264", "-preset", "veryfast", "-crf", overlays.intermediate ? "18" : "23", "-pix_fmt", "yuv420p",

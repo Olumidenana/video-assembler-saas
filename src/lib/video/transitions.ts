@@ -28,36 +28,41 @@ export const TRANSITIONS: { id: TransitionType; label: string; hint: string; dur
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
+type Timed = Pick<ExportItem, "start" | "end" | "transitionIn" | "speed">;
+
+/** How long an item plays in the output (slow motion plays longer than its source range). */
+export const playLength = (item: Pick<ExportItem, "start" | "end" | "speed">) => (item.end - item.start) / (item.speed ?? 1);
+
 /**
  * Seconds each item overlaps the one before it (0 for the first item and for
  * hard cuts). Capped at a third of either side so a short segment is never
  * swallowed by its transitions.
  */
-export function overlaps(items: Pick<ExportItem, "start" | "end" | "transitionIn">[]): number[] {
+export function overlaps(items: Timed[]): number[] {
   return items.map((item, i) => {
     if (i === 0 || !item.transitionIn) return 0;
     const prev = items[i - 1];
-    return r3(Math.max(0, Math.min(item.transitionIn.duration, (prev.end - prev.start) / 3, (item.end - item.start) / 3)));
+    return r3(Math.max(0, Math.min(item.transitionIn.duration, playLength(prev) / 3, playLength(item) / 3)));
   });
 }
 
 /** When each item starts in the output. */
-export function outputStarts(items: Pick<ExportItem, "start" | "end" | "transitionIn">[]): number[] {
+export function outputStarts(items: Timed[]): number[] {
   const o = overlaps(items);
   const starts: number[] = [];
   let t = 0;
   items.forEach((item, i) => {
     t -= o[i];
     starts.push(r3(t));
-    t += item.end - item.start;
+    t += playLength(item);
   });
   return starts;
 }
 
 /** Length of the output once transitions overlap their neighbours. */
-export function outputDuration(items: Pick<ExportItem, "start" | "end" | "transitionIn">[]): number {
+export function outputDuration(items: Timed[]): number {
   const o = overlaps(items);
-  return r3(items.reduce((sum, item, i) => sum + item.end - item.start - o[i], 0));
+  return r3(items.reduce((sum, item, i) => sum + playLength(item) - o[i], 0));
 }
 
 export const hasTransitions = (items: Pick<ExportItem, "transitionIn">[]) => items.some((item, i) => i > 0 && Boolean(item.transitionIn));
@@ -67,6 +72,8 @@ export const hasTransitions = (items: Pick<ExportItem, "transitionIn">[]) => ite
  * this many video inputs, so longer runs are rendered in chunks.
  */
 export const MAX_TRANSITION_INPUTS = 3;
+/** Beat edits have many short segments; they're rendered this many at a time. */
+export const MAX_EDIT_INPUTS = 6;
 
 /**
  * Splits items into chunks of at most `size`, each rendered on its own with
@@ -74,7 +81,7 @@ export const MAX_TRANSITION_INPUTS = 3;
  * that joins them. Durations are the already-capped overlaps, so the joined
  * result has exactly the timing of rendering everything at once.
  */
-export function chunkTransitions<T extends Pick<ExportItem, "start" | "end" | "transitionIn">>(
+export function chunkTransitions<T extends Timed>(
   items: T[],
   size = MAX_TRANSITION_INPUTS,
 ): { chunks: T[][]; joins: (Transition | undefined)[] } {

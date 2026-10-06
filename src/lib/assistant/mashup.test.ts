@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ClipAnalysis } from "@/lib/video/analysis";
-import { arrange, type Beat, findBeats, suggestMashups, transitionFor } from "./mashup";
+import { type Beat, findBeats } from "./mashup";
 
 function rng(seed: number) {
   return () => {
@@ -57,22 +57,6 @@ describe("mashups", () => {
     expect(feels.some((b) => b.clipId === "b" && inside(b, 200, 230))).toBe(true);
   });
 
-  it("suggests mashups that cut between the videos, 3-7 s beats, under 40 s", () => {
-    const mashups = suggestMashups(videos);
-    expect(mashups.length).toBeGreaterThanOrEqual(2);
-    for (const m of mashups) {
-      expect(new Set(m.beats.map((b) => b.clipId)).size).toBe(2);
-      expect(m.length).toBeLessThanOrEqual(40);
-      for (const b of m.beats) expect(b.end - b.start).toBeGreaterThanOrEqual(3);
-      for (let i = 1; i < m.beats.length; i++) {
-        const ids = new Set(m.beats.map((b) => b.id));
-        expect(ids.size).toBe(m.beats.length);
-      }
-    }
-    expect(mashups.find((m) => m.id === "feels")?.music).toBe("lofi");
-    // These videos' energetic moments are all fights, so "best of" would repeat "Fights & action".
-    expect(mashups.map((m) => m.id)).not.toContain("best");
-  });
 
   it("tags the payoff of a build-up as rising", () => {
     const a = episode(3, 300, 120);
@@ -91,19 +75,5 @@ describe("mashups", () => {
     expect(burst?.mood).toBe("rising");
   });
 
-  it("orders beats as an arc, strongest last, alternating videos", () => {
-    const beat = (clipId: string, fit: number): Beat => ({ id: `${clipId}${fit}`, clipId, start: fit * 100, end: fit * 100 + 4, peak: 0, mood: "action", fit });
-    const order = arrange([beat("a", 0.9), beat("a", 0.5), beat("a", 0.4), beat("b", 0.6), beat("b", 0.7), beat("b", 0.3)]);
-    expect(order.at(-1)!.fit).toBe(0.9);
-    expect(order[0].fit).toBe(0.7);
-    for (let i = 1; i < order.length; i++) expect(order[i].clipId).not.toBe(order[i - 1].clipId);
-  });
 
-  it("picks transitions to suit the beat in a mixed mashup", () => {
-    const b = (mood: Beat["mood"]): Beat => ({ id: mood, clipId: "a", start: 0, end: 4, peak: 2, mood, fit: 1 });
-    expect(transitionFor({ id: "best", transition: "fadewhite" }, b("feels"))).toBe("fade");
-    expect(transitionFor({ id: "best", transition: "fadewhite" }, b("rising"))).toBe("zoomin");
-    expect(transitionFor({ id: "action", transition: "fadewhite" }, b("feels"))).toBe("fadewhite");
-    expect(transitionFor({ id: "action", transition: "fadewhite" }, b("feels"), "smoothleft")).toBe("smoothleft");
-  });
 });

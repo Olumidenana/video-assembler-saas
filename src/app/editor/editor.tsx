@@ -22,9 +22,10 @@ import { findClipsByScene, findViralClips, overallScore, toSentences, type Viral
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
 import { ClipPack } from "./clip-pack";
-import { MashupPanel, type MashupChoice } from "./mashup-panel";
-import { findBeats, type Beat, type Mashup, MOODS, suggestMashups, transitionFor } from "@/lib/assistant/mashup";
-import { outputDuration, outputStarts, TRANSITIONS } from "@/lib/video/transitions";
+import { MashupPanel } from "./mashup-panel";
+import { findBeats, type Beat, MOODS } from "@/lib/assistant/mashup";
+import { type EditPlan, type EditVideo, planEdits, planThemedEdit } from "@/lib/assistant/beat-edit";
+import { outputDuration } from "@/lib/video/transitions";
 import type { Playbook } from "@/lib/assistant/playbooks";
 import { pickHooks } from "@/lib/assistant/hooks";
 // Type-only (erased at build time), so the server-only module never reaches the browser.
@@ -109,7 +110,8 @@ export function Editor({ plan }: { plan: PlanId }) {
   const transcriptKeys = useRef(new Map<string, string>());
   const [task, setTask] = useState<{ label: string; progress: number | null } | null>(null);
   const [viral, setViral] = useState<{ clips: ViralClip[]; basis: "transcript" | "scenes"; improved: boolean; range: ViralRange } | null>(null);
-  const [mashups, setMashups] = useState<Mashup[] | null>(null);
+  const [edits, setEdits] = useState<EditPlan[] | null>(null);
+  const [editIds, setEditIds] = useState<string[]>([]);
   const [logo, setLogo] = useState<{ url: string; bytes: Uint8Array } | null>(() => loadLogo());
   const fileInput = useRef<HTMLInputElement>(null);
   // The user's own music; kept in memory only (it isn't theirs to store with the project).
@@ -826,42 +828,59 @@ export function Editor({ plan }: { plan: PlanId }) {
     );
   }
 
+  /** The videos the last edits were made from, with their analyses (to re-cut on another beat). */
+  function editVideos(ids: string[]): EditVideo[] {
+    return ids.flatMap((id) => {
+      const a = analyses.current.get(id);
+      const clip = timeline.clips[id];
+      return a && clip ? [{ clipId: id, name: clip.file.name, duration: clip.info.duration, analysis: a }] : [];
+    });
+  }
+
   /**
-   * Mashup: analyses the chosen videos, finds beats that share a feel across
-   * them and, with AI Theme Match (Studio), lets Claude group them by story
-   * theme as well.
+   * Edits: analyses the chosen videos and plans beat-synced edits from them
+   * (hype, versus, emotional) and, with AI Theme Match (Studio), one built
+   * around a story theme Claude finds across them.
    */
   async function findMashups(videoIds: string[], useAi: boolean) {
-    setMashups(null);
+    setEdits(null);
     const ids = videoIds.filter((id) => timeline.clips[id]).slice(0, limits.mashupVideos);
-    if (ids.length < 2) return;
+    if (ids.length < 1) return;
     try {
       const total = ids.reduce((sum, id) => sum + timeline.clips[id].info.duration, 0);
       let done = 0;
       for (const id of ids) {
         const { info } = timeline.clips[id];
-        await getAnalysis(id, info, (r) => setTask({ label: `Watching ${ids.length} videos for moments that match…`, progress: total ? (done + r * info.duration) / total : null }));
+        await getAnalysis(id, info, (r) => setTask({ label: `Watching ${ids.length === 1 ? "your video" : `${ids.length} videos`} for the big moments…`, progress: total ? (done + r * info.duration) / total : null }));
         done += info.duration;
       }
-      const videos = ids.map((id) => ({ clipId: id, duration: timeline.clips[id].info.duration, analysis: analyses.current.get(id)! }));
-      let found = suggestMashups(videos);
-      if (useAi && limits.aiVision) {
-        const themed = await matchThemesWithAi(ids, findBeats(videos));
+      setEditIds(ids);
+      const videos = editVideos(ids);
+      let found = planEdits(videos);
+      if (useAi && limits.aiVision && ids.length >= 2) {
+        const themed = await matchThemesWithAi(ids, videos);
         if (themed.length) found = [...themed, ...found];
       }
-      setMashups(found);
+      setEdits(found);
     } catch (err) {
-      if (!(err instanceof CancelledError)) setErrors((e) => [...e, "Couldn't analyse the videos for a mashup. Please try again."]);
+      if (!(err instanceof CancelledError)) setErrors((e) => [...e, "Couldn't analyse the videos for an edit. Please try again."]);
     } finally {
       setTask(null);
     }
   }
 
-  /** AI Theme Match: two stills from each of the strongest beats per video go to Claude, which groups them by theme. */
-  async function matchThemesWithAi(ids: string[], beats: Beat[]): Promise<Mashup[]> {
+  /** Re-cuts one edit to another beat (the cuts follow the tempo). */
+  function restyleEdit(plan: EditPlan, music: MusicStyle) {
+    const next = planEdits(editVideos(editIds), { [plan.format]: music }).find((p) => p.id === plan.id);
+    if (next) setEdits((list) => list?.map((p) => (p.id === plan.id ? next : p)) ?? null);
+  }
+
+  /** AI Theme Match: two stills from each of the strongest moments per video go to Claude, which groups them by theme. */
+  async function matchThemesWithAi(ids: string[], videos: EditVideo[]): Promise<EditPlan[]> {
     const label = "AI Theme Match is looking at the moments…";
     setTask({ label, progress: 0 });
-    // The strongest beats of every feel from each video, taken in turn, at most 18.
+    const beats = findBeats(videos);
+    // The strongest moments of every feel from each video, taken in turn, at most 18.
     const perVideo = ids.map((id) => beats.filter((b) => b.clipId === id).sort((a, b) => b.fit - a.fit).slice(0, 6));
     const chosen: Beat[] = [];
     for (let round = 0; round < 6 && chosen.length < 18; round++) {
@@ -894,73 +913,61 @@ export function Editor({ plan }: { plan: PlanId }) {
           not_configured: "it isn't set up on this site yet",
           busy: "the AI is busy",
         };
-        setErrors((e) => [...e, `AI Theme Match was skipped (${why[body?.error ?? ""] ?? "it didn't respond"}). These matches are by feel.`]);
+        setErrors((e) => [...e, `AI Theme Match was skipped (${why[body?.error ?? ""] ?? "it didn't respond"}). These edits are built from the measured moments.`]);
         return [];
       }
       const byId = new Map(chosen.map((b) => [b.id, b]));
-      return body.mashups.map((m, i) => {
-        const list = m.ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
-        return {
-          id: `ai-${i}`,
-          title: m.title,
-          emoji: "🧠",
-          why: [m.theme && `Theme: ${m.theme}.`, m.why].filter(Boolean).join(" "),
-          hook: m.hook || "Same story, different worlds",
-          beats: list,
-          music: m.music,
-          transition: m.transition,
-          length: list.reduce((sum, b) => sum + b.end - b.start, 0),
-          ai: true,
-        };
+      return body.mashups.flatMap((m, i) => {
+        const plan = planThemedEdit(
+          videos,
+          m.ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])),
+          { id: `ai-${i}`, title: m.title, why: [m.theme && `Theme: ${m.theme}.`, m.why].filter(Boolean).join(" "), hook: m.hook || "Same story, different worlds", music: m.music },
+        );
+        return plan ? [plan] : [];
       });
     } catch (err) {
       if (err instanceof CancelledError) throw err;
-      setErrors((e) => [...e, "AI Theme Match was skipped (something went wrong). These matches are by feel."]);
+      setErrors((e) => [...e, "AI Theme Match was skipped (something went wrong). These edits are built from the measured moments."]);
       return [];
     }
   }
 
-  /** Exports a mashup as one 9:16 video: transitions between beats, hook, music dropping on the strongest beat, end card. */
-  async function makeMashup(m: Mashup, choice: MashupChoice) {
-    const items: ExportItem[] = m.beats.map((b, i) => {
-      const type = transitionFor(m, b, choice.transition);
-      return {
-        clipId: b.clipId,
-        info: timeline.clips[b.clipId].info,
-        start: b.start,
-        end: b.end,
-        ...(i > 0 ? { transitionIn: { type, duration: TRANSITIONS.find((t) => t.id === type)?.duration ?? 0.3 } } : {}),
-      };
-    });
-    // The beat drops on the strongest moment's peak, wherever it lands after the transitions.
-    const strongest = m.beats.reduce((best, b, i) => (b.fit > m.beats[best].fit ? i : best), 0);
-    const starts = outputStarts(items);
+  /** Exports an edit as one 9:16 video: every cut on its beat (frame-exact), effects, the composed beat dropping on the big hit. */
+  async function makeEdit(plan: EditPlan) {
+    const items: ExportItem[] = plan.shots.map((s) => ({
+      clipId: s.clipId,
+      info: timeline.clips[s.clipId].info,
+      start: s.start,
+      end: s.end,
+      ...(s.speed ? { speed: s.speed } : {}),
+      ...(s.fx ? { fx: s.fx } : {}),
+    }));
     const last = items[items.length - 1];
-    const drop = starts[strongest] + (m.beats[strongest].peak - m.beats[strongest].start);
-    const mashupSettings: ExportSettings = {
+    const editSettings: ExportSettings = {
       ...settings,
       aspect: "9:16",
       fit: "blur",
       captions: false,
       hook: { on: true, text: "" },
-      progressBar: true,
-      music: choice.music === "none" ? { ...settings.music, style: "none" } : { style: choice.music, volume: 0.7, original: 0.7, duck: true },
+      progressBar: false,
+      // The beat carries an edit; the original sound sits underneath for the impacts.
+      music: { style: plan.music, volume: 0.9, original: 0.3, duck: false },
     };
-    setSettings(mashupSettings);
+    setSettings(editSettings);
     document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
     await startExport(items, "stitch", {
-      settings: mashupSettings,
-      hooks: new Map([[itemKey(last), m.hook]]),
-      drops: new Map([[itemKey(last), Math.max(1, Math.min(drop, outputDuration(items) - 1))]]),
-      endCard: 1.6,
-      outro: "Which one hit hardest? Comment below",
+      settings: editSettings,
+      hooks: new Map([[itemKey(last), plan.hook]]),
+      drops: new Map([[itemKey(last), plan.dropAt]]),
+      outro: plan.cta,
       normalize: true,
+      frameExact: true,
     });
   }
 
-  function mashupToTimeline(m: Mashup) {
+  function editToTimeline(plan: EditPlan) {
     setHistory((h) => [...h.slice(-19), timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }))]);
-    dispatch({ type: "replaceSegments", segments: m.beats.map(({ clipId, start, end }) => ({ clipId, start, end })) });
+    dispatch({ type: "replaceSegments", segments: plan.shots.map(({ clipId, start, end }) => ({ clipId, start, end })) });
     document.querySelector("[data-testid=segment-list]")?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
@@ -993,6 +1000,8 @@ export function Editor({ plan }: { plan: PlanId }) {
       badges?: Map<string, string>;
       /** Seconds of end card (last frame held and dimmed) for the call to action. */
       endCard?: number;
+      /** Beat-synced edit: cut on exact frames so every cut stays on its beat. */
+      frameExact?: boolean;
     } = {},
   ) {
     let s = run.settings ?? settings;
@@ -1068,6 +1077,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       progressBar: s.progressBar,
       normalize: run.normalize,
       endCard: run.endCard,
+      frameExact: run.frameExact,
       music:
         composed || anyPartMusic || (music.style === "own" && ownTrack)
           ? async (renderItems: ExportItem[], duration: number) => {
@@ -1325,10 +1335,11 @@ export function Editor({ plan }: { plan: PlanId }) {
             videos={Object.keys(clips).map((id) => ({ id, name: clips[id].file.name, url: clips[id].url, color: colors[id] }))}
             limits={limits}
             busy={Boolean(task) || running || engineStatus !== "ready"}
-            mashups={mashups?.filter((m) => m.beats.every((b) => clips[b.clipId])) ?? null}
+            edits={edits?.filter((p) => p.shots.every((x) => clips[x.clipId])) ?? null}
             onFind={(ids, ai) => void findMashups(ids, ai)}
-            onMake={(m, choice) => void makeMashup(m, choice)}
-            onTimeline={mashupToTimeline}
+            onMake={(p) => void makeEdit(p)}
+            onTimeline={editToTimeline}
+            onRestyle={restyleEdit}
             onAddVideos={() => fileInput.current?.click()}
           />
         )}

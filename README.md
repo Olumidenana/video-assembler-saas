@@ -207,22 +207,38 @@ thread pool), and Claude judges what happens, whether it works as a short, and w
 title and caption. Candidates are re-ranked by the verdicts. Only the stills leave the device.
 Costs 10 AI credits; if it's unavailable the pack carries on with the built-in picks.
 
-## Mashup (`src/lib/assistant/mashup.ts`, `src/app/editor/mashup-panel.tsx`)
+## Edits & mashups (`src/lib/assistant/beat-edit.ts`, `src/app/editor/mashup-panel.tsx`)
 
-Cuts between several videos on moments that belong together. Every chosen video is analysed;
-`findBeats` takes 3-7 s moments from each and tags their feel from the measurements: **action**
-(loud, fast, intense), **rising** (the payoff of a build-up: energy well above the 10 s before it,
-e.g. a power-up or reveal) and **feels** (slow, still, but with a voice or score playing; found with
-`findMoments(..., { calm: true })`, which also cuts inside long shots). `suggestMashups` offers one
-edit per feel that at least two videos share (plus a "best of" when it isn't a repeat), taking beats
-from each video in turn, ordered as an arc (a strong opener, building, the strongest last) with
-consecutive beats from different videos. Each has a transition and music style to suit it; the
-card shows the moments and plays the cut live from the user's own files.
+Beat-synced fan edits from one or more videos, built the way viral edits (AMVs, phonk edits, versus
+edits) are: music first, every cut on a beat. `planEdits` lays out 9 bars of the composed beat:
+
+| Section | Bars | Cuts |
+|---|---|---|
+| Intro | 2 | two long, calm shots (fade in from black), the hook on screen |
+| Build | 2 | 2 beats, 2 beats, then a cut on every beat under the riser and snare roll |
+| Drop | 4 | the strongest hit lands exactly on the drop (flash, zoom punch, shake), then a cut on every beat, strongest last |
+| Outro | 1 | half-speed slow motion of a big moment (the "aura" ending) with the call to action; no end card, so it loops |
+
+Shots are cut around measured hits (`findHits`: peaks of loudness and motion, 2 s apart, theme songs
+skipped) so the impact lands just after the cut, never reusing footage, and alternating videos. Formats:
+**Hype edit** (phonk or trap, ~16 s), **A vs B** (alternates strictly between two videos; versus
+edits fill the comments) and **Emotional edit** (quiet scenes cut on the bar with soft dips, cinematic
+or lo-fi, ~24 s). Changing the beat re-cuts the edit to the new tempo. Each card plays the edit live:
+the composed track through Web Audio and the shots from the user's files, two video elements taking
+turns so the next shot is already seeked.
+
+Exports are frame-exact (`frameExact`): every boundary is rounded to the nearest frame of one global
+grid, so cuts stay on the beat however many there are; edits with more than 6 shots render 6 at a
+time into high-quality intermediates (each on the same grid), then join them with the music, hook and
+call to action. Slow motion (`speed`) and the beat effects (`fx`: flash, dip, punch, shake) are per
+segment. Note: the multi-threaded FFmpeg core has a fixed thread pool; graphs with more than three
+inputs run their filters single-threaded, or slice-threaded filters (fade, xfade) hang.
 
 **AI Theme Match** (Studio, `POST /api/mashup/themes`, `matchThemes`, 10 AI credits): two stills
-from each of up to 18 beats go to Claude, which groups moments from different videos that share a
-story theme (rivals, sacrifice, betrayal, a power awakening) or a visual rhyme, in play order, with
-music and a transition. Plans: Free mixes 2 videos, Pro 5, Studio 12.
+from each of up to 18 moments (`findBeats` in `mashup.ts`) go to Claude, which groups moments from
+different videos that share a story theme (rivals, sacrifice, betrayal, a power awakening) or a
+visual rhyme, with a beat; `planThemedEdit` builds an edit cut only from those moments. Plans: Free
+mixes 2 videos, Pro 5, Studio 12.
 
 **Transitions** (`src/lib/video/transitions.ts`): an item's `transitionIn` overlaps it with the
 previous one (FFmpeg `xfade` + a crossfade of the sound). Only the short overlapping pieces are

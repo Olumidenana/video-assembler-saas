@@ -3,11 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { HardLink } from "@/components/hard-link";
 import { LockIcon, SparkIcon, UploadIcon } from "@/components/icons";
-import type { Beat, Mashup } from "@/lib/assistant/mashup";
+import type { EditFormat, EditPlan, Shot } from "@/lib/assistant/beat-edit";
 import { MUSIC_STYLES, type MusicStyle } from "@/lib/audio/music";
 import type { PlanLimits } from "@/lib/plans";
-import { TRANSITIONS, type TransitionType } from "@/lib/video/transitions";
-import { formatTime } from "./format";
 import { useThumbnail } from "./thumbnails";
 
 export interface MashupVideoInfo {
@@ -17,34 +15,41 @@ export interface MashupVideoInfo {
   color: string;
 }
 
-export interface MashupChoice {
-  transition: TransitionType | "auto";
-  music: MusicStyle | "none";
-}
+/** Beats that suit each kind of edit (the cuts follow the beat, so changing it re-cuts the edit). */
+export const EDIT_STYLES: Record<EditFormat, MusicStyle[]> = {
+  hype: ["phonk", "trap"],
+  versus: ["trap", "phonk"],
+  feels: ["cinematic", "lofi"],
+};
+
+/** The seed the export composes with, so the preview plays the same track. */
+export const musicSeed = (plan: EditPlan) => Math.round(plan.shots[0].start * 10) + plan.shots.length;
 
 /**
- * Mashups: pick several videos, find the moments that belong together across
- * them (same feel, or with AI Theme Match the same story theme), preview the
- * cut live and export it with transitions and a beat that drops on the
- * biggest moment.
+ * Edits: beat-synced fan edits and mashups from one or more videos, built the
+ * way viral edits are (music first, every cut on a beat, the big hit on the
+ * drop, a slow-motion ending that loops). Each card plays the edit live with
+ * its music before anything is exported.
  */
 export function MashupPanel({
   videos,
   limits,
   busy,
-  mashups,
+  edits,
   onFind,
   onMake,
   onTimeline,
+  onRestyle,
   onAddVideos,
 }: {
   videos: MashupVideoInfo[];
   limits: PlanLimits;
   busy: boolean;
-  mashups: Mashup[] | null;
+  edits: EditPlan[] | null;
   onFind: (videoIds: string[], ai: boolean) => void;
-  onMake: (mashup: Mashup, choice: MashupChoice) => void;
-  onTimeline: (mashup: Mashup) => void;
+  onMake: (plan: EditPlan) => void;
+  onTimeline: (plan: EditPlan) => void;
+  onRestyle: (plan: EditPlan, music: MusicStyle) => void;
   onAddVideos: () => void;
 }) {
   // Every video is in, up to the plan's limit, except the ones switched off.
@@ -67,96 +72,85 @@ export function MashupPanel({
             🎞️
           </span>
           <div>
-            <h2 className="text-lg font-semibold">Mashup</h2>
+            <h2 className="text-lg font-semibold">Edits & mashups</h2>
             <p className="text-sm text-muted">
-              Cut between several videos on moments that belong together: fights from different anime, the same feeling in a film and a series. We match them, add transitions and a beat that drops on the biggest one.
+              Beat-synced edits like the ones that hit millions: a slow intro, cuts that speed up, the biggest hit landing on the drop, a cut on every beat, and a slow-motion ending that loops. From one video or several.
             </p>
           </div>
         </div>
 
-        {videos.length < 2 ? (
-          <div className="relative flex flex-col items-start gap-3 rounded-xl border border-dashed border-line p-4 text-sm">
-            <p className="text-muted">
-              Add at least one more video to mix with this one: another episode, a different anime, a movie, a game clip. Videos you add are matched together.
-            </p>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onAddVideos}>
-              <UploadIcon size={14} /> Add videos
+        <div className="relative flex flex-col gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-subtle">
+            Videos to use ({picked.length}/{Math.min(videos.length, limits.mashupVideos)})
+          </p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Videos to use">
+            {videos.map((v) => {
+              const on = picked.includes(v.id);
+              const full = !on && picked.length >= limits.mashupVideos;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  aria-pressed={on}
+                  disabled={full}
+                  title={full ? `Your plan mixes up to ${limits.mashupVideos} videos` : undefined}
+                  onClick={() => toggle(v.id)}
+                  className={`flex max-w-[16rem] items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                    on ? "border-brand/60 bg-brand/10 text-fg" : "border-line text-muted hover:border-line-strong"
+                  } ${full ? "opacity-50" : ""}`}
+                >
+                  <span className="size-2 shrink-0 rounded-full" style={{ background: v.color }} />
+                  <span className="truncate">{v.name}</span>
+                </button>
+              );
+            })}
+            <button type="button" className="flex items-center gap-1 rounded-full border border-dashed border-line px-3 py-1.5 text-xs text-muted hover:text-fg" onClick={onAddVideos}>
+              <UploadIcon size={12} /> Add
             </button>
           </div>
-        ) : (
-          <>
-            <div className="relative flex flex-col gap-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-subtle">
-                Videos to mix ({picked.length}/{Math.min(videos.length, limits.mashupVideos)})
-              </p>
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Videos to mix">
-                {videos.map((v) => {
-                  const on = picked.includes(v.id);
-                  const full = !on && picked.length >= limits.mashupVideos;
-                  return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      aria-pressed={on}
-                      disabled={full}
-                      title={full ? `Your plan mixes up to ${limits.mashupVideos} videos` : undefined}
-                      onClick={() => toggle(v.id)}
-                      className={`flex max-w-[16rem] items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                        on ? "border-brand/60 bg-brand/10 text-fg" : "border-line text-muted hover:border-line-strong"
-                      } ${full ? "opacity-50" : ""}`}
-                    >
-                      <span className="size-2 shrink-0 rounded-full" style={{ background: v.color }} />
-                      <span className="truncate">{v.name}</span>
-                    </button>
-                  );
-                })}
-                <button type="button" className="rounded-full border border-dashed border-line px-3 py-1.5 text-xs text-muted hover:text-fg" onClick={onAddVideos}>
-                  + Add
-                </button>
-              </div>
-              {videos.length > limits.mashupVideos && (
-                <HardLink href="/pricing" className="flex items-center gap-1 text-xs text-subtle hover:text-fg">
-                  <LockIcon size={11} /> {limits.label} mixes {limits.mashupVideos} videos at a time. Pro: 5, Studio: 12.
-                </HardLink>
-              )}
-            </div>
+          {videos.length < 2 && (
+            <p className="text-xs text-subtle">Add a second video (another episode, anime or film) for a mashup and a versus edit.</p>
+          )}
+          {videos.length > limits.mashupVideos && (
+            <HardLink href="/pricing" className="flex items-center gap-1 text-xs text-subtle hover:text-fg">
+              <LockIcon size={11} /> {limits.label} mixes {limits.mashupVideos} videos at a time. Pro: 5, Studio: 12.
+            </HardLink>
+          )}
+        </div>
 
-            <div className="relative flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
-              {limits.aiVision ? (
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={ai} onChange={(e) => setAi(e.target.checked)} className="accent-brand" />
-                  <span>
-                    <span className="font-medium">AI Theme Match</span>{" "}
-                    <span className="text-muted">looks at the moments and groups them by story: rivals, sacrifice, betrayal, power-ups (10 AI credits)</span>
-                  </span>
-                </label>
-              ) : (
-                <HardLink href="/pricing" className="flex items-center gap-1.5 text-muted hover:text-fg">
-                  <LockIcon size={12} /> AI Theme Match, which groups moments by story theme across videos, is on Studio
-                </HardLink>
-              )}
-            </div>
+        {videos.length >= 2 &&
+          (limits.aiVision ? (
+            <label className="relative flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={ai} onChange={(e) => setAi(e.target.checked)} className="accent-brand" />
+              <span>
+                <span className="font-medium">AI Theme Match</span>{" "}
+                <span className="text-muted">looks at the moments and builds an edit around a shared story: rivals, sacrifice, betrayal, power-ups (10 AI credits)</span>
+              </span>
+            </label>
+          ) : (
+            <HardLink href="/pricing" className="relative flex items-center gap-1.5 text-sm text-muted hover:text-fg">
+              <LockIcon size={12} /> AI Theme Match, which builds edits around a shared story across videos, is on Studio
+            </HardLink>
+          ))}
 
-            <button
-              type="button"
-              className="btn btn-primary btn-lg relative self-start"
-              disabled={busy || picked.length < 2}
-              onClick={() => onFind(picked, ai && limits.aiVision)}
-            >
-              <SparkIcon size={16} /> {mashups ? "Find matches again" : `Find matches in ${picked.length} videos`}
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          className="btn btn-primary btn-lg relative self-start"
+          disabled={busy || picked.length < 1}
+          onClick={() => onFind(picked, ai && limits.aiVision && picked.length >= 2)}
+        >
+          <SparkIcon size={16} /> {edits ? "Make new edits" : picked.length > 1 ? `Make edits from ${picked.length} videos` : "Make edits"}
+        </button>
 
-        {mashups && mashups.length === 0 && (
+        {edits && edits.length === 0 && (
           <p className="relative text-sm text-muted">
-            Nothing matched strongly enough across these videos. Try videos with more action or emotion, or add another one.
+            There weren&apos;t enough strong moments for an edit. Try a video with more action or emotion, or add another one.
           </p>
         )}
-        {mashups && mashups.length > 0 && (
-          <ul className="relative grid gap-4 lg:grid-cols-2" data-testid="mashup-list">
-            {mashups.map((m) => (
-              <MashupCard key={m.id} mashup={m} videos={byId} busy={busy} onMake={onMake} onTimeline={onTimeline} />
+        {edits && edits.length > 0 && (
+          <ul className="relative grid gap-4 xl:grid-cols-2" data-testid="mashup-list">
+            {edits.map((p) => (
+              <EditCard key={p.id} plan={p} videos={byId} busy={busy} onMake={onMake} onTimeline={onTimeline} onRestyle={onRestyle} />
             ))}
           </ul>
         )}
@@ -165,170 +159,216 @@ export function MashupPanel({
   );
 }
 
-function MashupCard({
-  mashup,
+function EditCard({
+  plan,
   videos,
   busy,
   onMake,
   onTimeline,
+  onRestyle,
 }: {
-  mashup: Mashup;
+  plan: EditPlan;
   videos: Record<string, MashupVideoInfo>;
   busy: boolean;
-  onMake: (m: Mashup, choice: MashupChoice) => void;
-  onTimeline: (m: Mashup) => void;
+  onMake: (p: EditPlan) => void;
+  onTimeline: (p: EditPlan) => void;
+  onRestyle: (p: EditPlan, music: MusicStyle) => void;
 }) {
-  const [transition, setTransition] = useState<TransitionType | "auto">("auto");
-  const [music, setMusic] = useState<MusicStyle | "none">(mashup.music);
-  const from = [...new Set(mashup.beats.map((b) => b.clipId))];
+  const from = [...new Set(plan.shots.map((s) => s.clipId))];
+  const styles = plan.ai ? [plan.music] : EDIT_STYLES[plan.format];
   return (
-    <li className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2/60 p-4" data-testid="mashup-card">
-      <MashupPreview beats={mashup.beats} videos={videos} transition={transition === "auto" ? mashup.transition : transition} />
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+    <li className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2/60 p-4 sm:flex-row" data-testid="mashup-card">
+      <EditPreview plan={plan} videos={videos} />
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div>
           <p className="font-medium leading-snug">
-            {mashup.emoji} {mashup.title}
-            {mashup.ai && <span className="badge badge-pro ml-2 align-middle">AI theme</span>}
+            {plan.emoji} {plan.title}
+            {plan.ai && <span className="badge badge-pro ml-2 align-middle">AI theme</span>}
           </p>
           <p className="text-xs text-subtle">
-            {mashup.beats.length} moments · {from.length} videos · about {Math.round(mashup.length)}s
+            {plan.shots.length} cuts · {from.length} video{from.length === 1 ? "" : "s"} · {Math.round(plan.length)}s · {plan.bpm} BPM
           </p>
         </div>
-      </div>
-      <p className="border-l-2 border-brand/50 pl-3 text-sm italic text-muted">“{mashup.hook}”</p>
-      <p className="text-xs text-muted">{mashup.why}</p>
-      <ol className="flex gap-1.5 overflow-x-auto pb-1" aria-label="Moments in order">
-        {mashup.beats.map((b, i) => (
-          <BeatThumb key={b.id} beat={b} index={i} video={videos[b.clipId]} />
-        ))}
-      </ol>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs text-subtle">
-          Transition
-          <select className="input py-1.5 text-sm" value={transition} onChange={(e) => setTransition(e.target.value as TransitionType | "auto")}>
-            <option value="auto">Auto (suits each cut)</option>
-            {TRANSITIONS.map((t) => (
-              <option key={t.id} value={t.id} title={t.hint}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-subtle">
-          Music
-          <select className="input py-1.5 text-sm" value={music} onChange={(e) => setMusic(e.target.value as MusicStyle | "none")}>
-            {MUSIC_STYLES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-            <option value="none">No music (original sound)</option>
-          </select>
-        </label>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => onMake(mashup, { transition, music })}>
-          Make this mashup
-        </button>
-        <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => onTimeline(mashup)}>
-          Edit on timeline
-        </button>
+        <p className="text-xs text-muted">{plan.why}</p>
+        <Structure plan={plan} videos={videos} />
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Beat">
+          {styles.map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={plan.music === m}
+              disabled={busy}
+              onClick={() => plan.music !== m && onRestyle(plan, m)}
+              className={`rounded-full border px-3 py-1 text-xs ${plan.music === m ? "border-brand/60 bg-brand/15 text-fg" : "border-line text-muted hover:text-fg"}`}
+            >
+              {MUSIC_STYLES.find((s) => s.id === m)?.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-auto flex flex-wrap gap-2">
+          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => onMake(plan)}>
+            Export this edit
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => onTimeline(plan)}>
+            Edit on timeline
+          </button>
+        </div>
       </div>
     </li>
   );
 }
 
-function BeatThumb({ beat, index, video }: { beat: Beat; index: number; video: MashupVideoInfo | undefined }) {
-  const still = useThumbnail(video?.url, beat.peak, 160);
+/** The edit's shape: a bar per shot, as wide as its beats, colored by video, with the drop marked. */
+function Structure({ plan, videos }: { plan: EditPlan; videos: Record<string, MashupVideoInfo> }) {
+  const total = plan.shots.reduce((s, x) => s + x.beats, 0);
+  const at = plan.shots.reduce<number[]>((acc, x, i) => [...acc, i ? acc[i - 1] + plan.shots[i - 1].beats : 0], []);
+  const dropBeat = plan.shots.slice(0, plan.shots.findIndex((x) => x.role === "drop")).reduce((s, x) => s + x.beats, 0);
   return (
-    <li className="relative w-20 shrink-0 overflow-hidden rounded-md bg-black" title={`${video?.name ?? "video"} @ ${formatTime(beat.start)}`}>
-      <div className="aspect-video">
-        {still && (
-          // eslint-disable-next-line @next/next/no-img-element -- a frame from the user's own local video
-          <img src={still} alt="" className="size-full object-cover" />
-        )}
+    <div className="flex flex-col gap-1">
+      <div className="relative flex h-7 gap-px overflow-hidden rounded-md" aria-label="Cuts">
+        {plan.shots.map((s, i) => (
+          <span
+            key={i}
+            title={`${s.role} · ${s.beats} beat${s.beats === 1 ? "" : "s"}${s.speed ? " · slow motion" : ""}`}
+            className={`h-full ${s.role === "drop" || s.role === "outro" ? "opacity-100" : "opacity-60"}`}
+            style={{ width: `${(s.beats / total) * 100}%`, background: videos[s.clipId]?.color ?? "#888", marginLeft: at[i] === dropBeat ? 2 : 0 }}
+          />
+        ))}
+        <span className="pointer-events-none absolute inset-y-0 w-0.5 bg-white" style={{ left: `${(dropBeat / total) * 100}%` }} />
       </div>
-      <span className="absolute inset-x-0 bottom-0 h-1" style={{ background: video?.color }} />
-      <span className="absolute left-1 top-1 rounded bg-black/60 px-1 font-mono text-[10px] text-white">{index + 1}</span>
-    </li>
+      <div className="flex justify-between text-[10px] uppercase tracking-wide text-subtle">
+        <span>Intro</span>
+        <span>Build</span>
+        <span className="text-fg">Drop</span>
+        <span>Slow-mo</span>
+      </div>
+    </div>
   );
 }
 
 /**
- * Plays the mashup's beats one after another from the user's own files, with
- * a flash or fade between them, so the cut can be judged before exporting.
+ * Plays the edit live: the composed track through Web Audio, and the shots
+ * cut to it from the user's own files. Two video elements take turns, so the
+ * next shot is already seeked while the current one plays.
  */
-function MashupPreview({ beats, videos, transition }: { beats: Beat[]; videos: Record<string, MashupVideoInfo>; transition: TransitionType }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [sound, setSound] = useState(false);
-  const beat = beats[index];
-  const poster = useThumbnail(videos[beats[0]?.clipId]?.url, beats[0]?.peak ?? 0, 480);
+function EditPreview({ plan, videos }: { plan: EditPlan; videos: Record<string, MashupVideoInfo> }) {
+  const first = useRef<HTMLVideoElement>(null);
+  const second = useRef<HTMLVideoElement>(null);
+  const el = (k: number) => (k % 2 === 0 ? first.current : second.current);
+  const [state, setState] = useState<"idle" | "loading" | "playing">("idle");
+  const [shot, setShot] = useState(-1);
+  const [time, setTime] = useState(0);
+  const stopRef = useRef<() => void>(() => {});
+  const poster = useThumbnail(videos[plan.shots[0]?.clipId]?.url, plan.shots[plan.shots.findIndex((s) => s.role === "drop")]?.start ?? 0, 360);
+  const beat = 60 / plan.bpm;
+  const starts = plan.shots.reduce<number[]>((acc, s, i) => [...acc, i ? acc[i - 1] + plan.shots[i - 1].beats * beat : 0], []);
 
-  useEffect(() => {
-    const v = ref.current;
-    if (!v || !beat) return;
-    if (!playing) {
-      v.pause();
+  useEffect(() => () => stopRef.current(), []);
+  // A new cut or new beat: start over.
+  useEffect(() => () => stopRef.current(), [plan]);
+
+  const prepare = (el: HTMLVideoElement | null, s: Shot | undefined) => {
+    if (!el || !s) return;
+    const url = videos[s.clipId]?.url;
+    if (!url) return;
+    if (el.getAttribute("src") !== url) el.setAttribute("src", url);
+    el.pause();
+    el.currentTime = s.start;
+  };
+
+  async function play() {
+    if (state !== "idle") {
+      stopRef.current();
       return;
     }
-    const url = videos[beat.clipId]?.url;
-    if (!url) return;
-    const go = () => {
-      v.currentTime = beat.start;
-      v.play().catch(() => setPlaying(false));
+    setState("loading");
+    const { planTrack, renderTrack } = await import("@/lib/audio/music");
+    const buffer = await renderTrack(planTrack(plan.music, plan.length, plan.dropAt, musicSeed(plan)));
+    const ctx = new AudioContext();
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(ctx.destination);
+    prepare(el(0), plan.shots[0]);
+    prepare(el(1), plan.shots[1]);
+    await new Promise((r) => setTimeout(r, 250));
+    const t0 = ctx.currentTime + 0.05;
+    src.start(t0);
+    let current = -1;
+    let frame = 0;
+    const stop = () => {
+      cancelAnimationFrame(frame);
+      try {
+        src.stop();
+      } catch {}
+      void ctx.close().catch(() => {});
+      el(0)?.pause();
+      el(1)?.pause();
+      setShot(-1);
+      setState("idle");
+      stopRef.current = () => {};
     };
-    if (v.getAttribute("src") !== url) {
-      v.setAttribute("src", url);
-      v.addEventListener("loadedmetadata", go, { once: true });
-      v.load();
-    } else {
-      go();
-    }
-  }, [beat, playing, videos]);
+    stopRef.current = stop;
+    setState("playing");
+    const tick = () => {
+      const t = ctx.currentTime - t0;
+      if (t >= plan.length) return stop();
+      let i = current < 0 ? 0 : current;
+      while (i + 1 < starts.length && t >= starts[i + 1]) i++;
+      if (i !== current && t >= 0) {
+        current = i;
+        const active = el(i);
+        const other = el(i + 1);
+        if (active) {
+          active.playbackRate = plan.shots[i].speed ?? 1;
+          void active.play().catch(() => {});
+        }
+        other?.pause();
+        prepare(other, plan.shots[i + 1]);
+        setShot(i);
+      }
+      setTime(t);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+  }
 
-  const flash = transition === "fadewhite" ? "bg-white" : "bg-black";
+  const s = shot >= 0 ? plan.shots[shot] : null;
+  const flash = s?.fx?.flash ? "bg-white" : s?.fx?.dip ? "bg-black" : null;
   return (
-    <div className="group relative aspect-video overflow-hidden rounded-lg bg-black" data-testid="mashup-preview">
-      {poster && !playing && (
+    <div className="relative aspect-[9/16] w-full shrink-0 overflow-hidden rounded-xl bg-black sm:w-44" data-testid="mashup-preview">
+      {poster && state !== "playing" && (
         // eslint-disable-next-line @next/next/no-img-element -- a frame from the user's own local video
-        <img src={poster} alt="" className="absolute inset-0 size-full object-contain" />
+        <img src={poster} alt="" className="absolute inset-0 size-full object-cover opacity-80" />
       )}
-      <video
-        ref={ref}
-        muted={!sound}
-        playsInline
-        preload="none"
-        onTimeUpdate={(e) => {
-          if (beat && e.currentTarget.currentTime >= beat.end) setIndex((i) => (i + 1) % beats.length);
-        }}
-        className={`absolute inset-0 size-full object-contain ${playing ? "opacity-100" : "opacity-0"}`}
-      />
-      {playing && <div key={index} className={`pointer-events-none absolute inset-0 animate-cut ${flash}`} />}
-      {playing && beat && (
-        <span className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white backdrop-blur">
-          <span className="size-2 rounded-full" style={{ background: videos[beat.clipId]?.color }} />
-          {index + 1}/{beats.length} · {videos[beat.clipId]?.name}
-        </span>
+      <PreviewVideo ref={first} on={state === "playing" && shot >= 0 && shot % 2 === 0} fx={s?.fx} />
+      <PreviewVideo ref={second} on={state === "playing" && shot % 2 === 1} fx={s?.fx} />
+      {state === "playing" && flash && <div key={shot} className={`pointer-events-none absolute inset-0 animate-cut ${flash}`} />}
+      {state === "playing" && time < 3 && (
+        <p className="absolute inset-x-2 top-[14%] text-center font-display text-lg uppercase leading-tight text-white [text-shadow:0_0_6px_#000,0_2px_0_#000]">{plan.hook}</p>
       )}
-      <div className="absolute bottom-2 right-2 flex gap-1.5">
-        {playing && (
-          <button type="button" onClick={() => setSound((s) => !s)} className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur">
-            {sound ? "🔊" : "🔇"}
-          </button>
+      {state === "playing" && s?.role === "outro" && (
+        <p className="absolute inset-x-2 bottom-[22%] text-center font-display text-base uppercase leading-tight text-white [text-shadow:0_0_6px_#000,0_2px_0_#000]">{plan.cta}</p>
+      )}
+      {state === "playing" && (
+        <div className="absolute inset-x-0 bottom-0 h-1 bg-brand" style={{ width: `${Math.min(100, (time / plan.length) * 100)}%` }} />
+      )}
+      <button
+        type="button"
+        onClick={() => void play()}
+        className="absolute inset-0 grid place-items-center text-white"
+        aria-label={state === "idle" ? "Play the edit with its music" : "Stop"}
+      >
+        {state !== "playing" && (
+          <span className="rounded-full bg-black/60 px-3 py-1.5 text-xs backdrop-blur">{state === "loading" ? "Making the beat…" : "▶ Play with music"}</span>
         )}
-        <button
-          type="button"
-          onClick={() => {
-            setIndex(0);
-            setPlaying((p) => !p);
-          }}
-          className="rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur"
-        >
-          {playing ? "■ Stop" : "▶ Preview the cut"}
-        </button>
-      </div>
+      </button>
     </div>
   );
+}
+
+/** One of the preview's two alternating players; punch and shake replay on every cut it shows. */
+function PreviewVideo({ ref, on, fx }: { ref: React.Ref<HTMLVideoElement>; on: boolean; fx: Shot["fx"] }) {
+  const motion = on && fx?.punch ? "animate-punch" : on && fx?.shake ? "animate-shake" : "";
+  return <video ref={ref} muted playsInline preload="auto" className={`absolute inset-0 size-full object-cover ${on ? "opacity-100" : "opacity-0"} ${motion}`} />;
 }

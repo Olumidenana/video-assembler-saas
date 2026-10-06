@@ -52,8 +52,9 @@ export function wordsForOutput(items: ExportItem[], transcripts: Record<string, 
     for (const w of transcripts[item.clipId] ?? []) {
       const mid = (w.start + w.end) / 2;
       if (mid < item.start || mid > item.end) continue;
-      const start = offset + Math.max(0, w.start - item.start);
-      const end = offset + Math.min(item.end, w.end) - item.start;
+      const speed = item.speed ?? 1;
+      const start = offset + Math.max(0, w.start - item.start) / speed;
+      const end = offset + (Math.min(item.end, w.end) - item.start) / speed;
       if (start >= limitSeconds) continue;
       out.push({ text: w.text, start, end: Math.min(end, limitSeconds) });
     }
