@@ -180,7 +180,7 @@ function EditCard({
   onRestyle: (p: EditPlan, music: MusicStyle) => void;
 }) {
   const from = [...new Set(plan.shots.map((s) => s.clipId))];
-  const styles = plan.ai ? [plan.music] : EDIT_STYLES[plan.format];
+  const styles = plan.ai && plan.format !== "quote" ? [plan.music] : EDIT_STYLES[plan.format];
   return (
     <li className="flex flex-col gap-4 rounded-xl border border-line bg-surface-2/60 p-4 sm:flex-row" data-testid="mashup-card">
       <EditPreview plan={plan} videos={videos} />
@@ -188,7 +188,7 @@ function EditCard({
         <div>
           <p className="font-medium leading-snug">
             {plan.emoji} {plan.title}
-            {plan.ai && <span className="badge badge-pro ml-2 align-middle">AI theme</span>}
+            {plan.ai && <span className="badge badge-pro ml-2 align-middle">{plan.format === "quote" ? "AI pick" : "AI theme"}</span>}
           </p>
           <p className="text-xs text-subtle">
             {plan.shots.length} cuts · {from.length} video{from.length === 1 ? "" : "s"} · {Math.round(plan.length)}s · {plan.bpm} BPM

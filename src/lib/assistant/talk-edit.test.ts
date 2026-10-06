@@ -61,6 +61,18 @@ describe("talking edits", () => {
     for (const s of plan.shots) expect(s.end - s.start).toBeLessThanOrEqual(15.5);
   });
 
+  it("puts AI picks first: as quotes when long enough, in the countdown when short", () => {
+    const ai = (start: number, end: number, score: number) => ({ id: `ai${start}`, clipId: "pod", start, end, score, scores: { hook: 50, curiosity: 50, emotion: 50, value: 50, pacing: 50 }, hook: "", reasons: ["Bold claim"], title: "t", caption: "c", hashtags: [] }) as ViralClip;
+    const plans = planTalkEdits([video], 30, {}, [ai(300, 320, 40), ai(500, 510, 30), ai(600, 611, 35)]);
+    const quote = plans.find((p) => p.format === "quote")!;
+    expect(quote.ai).toBe(true);
+    expect(quote.shots[0].start).toBe(300);
+    const countdown = plans.find((p) => p.format === "countdown")!;
+    // Both short AI picks are in, and the higher-scoring of them is #1.
+    expect(countdown.shots.map((s) => s.start)).toContain(500);
+    expect(countdown.shots.at(-1)!.start).toBe(600);
+  });
+
   it("offers quote edits and a countdown for a podcast", () => {
     const plans = planTalkEdits([video], 30);
     expect(plans.map((p) => p.format)).toEqual(["quote", "quote", "countdown"]);

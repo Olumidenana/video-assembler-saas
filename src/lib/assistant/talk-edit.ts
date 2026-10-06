@@ -85,14 +85,20 @@ export function planQuote(quote: ViralClip, music: MusicStyle, fps: number, inde
 }
 
 /** The best few moments across the videos, as whole sentences (or scenes without speech), not overlapping. */
-export function findCountdownMoments(videos: TalkVideo[], count = 3): ViralClip[] {
-  const all = videos.flatMap((v) =>
-    v.words.length > 20
-      ? findViralClips(v.clipId, v.words, v.analysis, { minSeconds: 7, maxSeconds: 15, maxClips: 6 })
-      : findClipsByScene(v.clipId, v.duration, v.analysis, { minSeconds: 6, maxSeconds: 12, maxClips: 6 }),
-  );
+export function findCountdownMoments(videos: TalkVideo[], count = 3, aiPicks: ViralClip[] = []): ViralClip[] {
+  // AI picks short enough for a countdown come first; the measured picks fill any gaps.
+  const fromAi = aiPicks.filter((c) => c.end - c.start <= 16);
+  const all = [
+    ...fromAi,
+    ...videos.flatMap((v) =>
+      v.words.length > 20
+        ? findViralClips(v.clipId, v.words, v.analysis, { minSeconds: 7, maxSeconds: 15, maxClips: 6 })
+        : findClipsByScene(v.clipId, v.duration, v.analysis, { minSeconds: 6, maxSeconds: 12, maxClips: 6 }),
+    ),
+  ];
+  const rank = (c: ViralClip) => (fromAi.includes(c) ? 1000 : 0) + c.score;
   const picked: ViralClip[] = [];
-  for (const c of all.sort((a, b) => b.score - a.score)) {
+  for (const c of all.sort((a, b) => rank(b) - rank(a))) {
     if (picked.length >= count) break;
     if (picked.some((p) => p.clipId === c.clipId && c.start < p.end && p.start < c.end)) continue;
     picked.push(c);
@@ -101,9 +107,10 @@ export function findCountdownMoments(videos: TalkVideo[], count = 3): ViralClip[
 }
 
 /** Top N countdown: weakest first, each numbered, a flash between them, the best saved for last. */
-export function planCountdown(videos: TalkVideo[], music: MusicStyle = "lofi", count = 3): EditPlan | null {
-  const moments = findCountdownMoments(videos, count);
+export function planCountdown(videos: TalkVideo[], music: MusicStyle = "lofi", count = 3, aiPicks: ViralClip[] = []): EditPlan | null {
+  const moments = findCountdownMoments(videos, count, aiPicks);
   if (moments.length < 2) return null;
+  // Weakest first, the best saved for #1 (moments come strongest first).
   const ordered = [...moments].reverse();
   const bpm = MUSIC_STYLES.find((m) => m.id === music)!.bpm;
   const beat = 60 / bpm;
@@ -136,9 +143,22 @@ export function planCountdown(videos: TalkVideo[], music: MusicStyle = "lofi", c
   };
 }
 
-/** Talking-content edits for these videos: up to two quote edits and a countdown. */
-export function planTalkEdits(videos: TalkVideo[], fps: number, styles: { quote?: MusicStyle; countdown?: MusicStyle } = {}): EditPlan[] {
-  const quotes = findQuotes(videos).map((q, i) => planQuote(q, styles.quote ?? "cinematic", fps, i));
-  const countdown = planCountdown(videos, styles.countdown ?? "lofi");
+/**
+ * Talking-content edits for these videos: up to two quote edits and a
+ * countdown. `aiPicks` (Pro, Studio) are moments AI chose from the whole
+ * transcript; they come first, the measured picks fill in.
+ */
+export function planTalkEdits(
+  videos: TalkVideo[],
+  fps: number,
+  styles: { quote?: MusicStyle; countdown?: MusicStyle } = {},
+  aiPicks: ViralClip[] = [],
+): EditPlan[] {
+  const aiQuotes = aiPicks.filter((c) => c.end - c.start >= 12 && c.end - c.start <= 30).sort((a, b) => b.score - a.score);
+  const quotes = [...aiQuotes, ...findQuotes(videos)]
+    .filter((q, i, all) => all.findIndex((o) => o.clipId === q.clipId && q.start < o.end && o.start < q.end) === i)
+    .slice(0, 2)
+    .map((q, i) => ({ ...planQuote(q, styles.quote ?? "cinematic", fps, i), ...(aiQuotes.includes(q) ? { ai: true, why: `AI picked this line from the whole conversation: ${q.reasons.slice(0, 2).join("; ") || "a strong standalone moment"}. Punch-in zooms on every bar, word-by-word captions and a score underneath.` } : {}) }));
+  const countdown = planCountdown(videos, styles.countdown ?? "lofi", 3, aiPicks);
   return [...quotes, ...(countdown ? [countdown] : [])];
 }

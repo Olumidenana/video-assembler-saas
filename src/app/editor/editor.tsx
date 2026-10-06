@@ -113,6 +113,8 @@ export function Editor({ plan }: { plan: PlanId }) {
   const [viral, setViral] = useState<{ clips: ViralClip[]; basis: "transcript" | "scenes"; improved: boolean; range: ViralRange } | null>(null);
   const [edits, setEdits] = useState<EditPlan[] | null>(null);
   const [editIds, setEditIds] = useState<string[]>([]);
+  /** Moments AI picked for the current edits (kept so changing the beat doesn't pay for a new pick). */
+  const editAiPicks = useRef<ViralClip[]>([]);
   const [logo, setLogo] = useState<{ url: string; bytes: Uint8Array } | null>(() => loadLogo());
   const fileInput = useRef<HTMLInputElement>(null);
   // The user's own music; kept in memory only (it isn't theirs to store with the project).
@@ -544,7 +546,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       }
       setTask({ label: "Scoring moments…", progress: null });
       const opts = { minSeconds: range.min, maxSeconds: range.max, maxClips: 10, weights };
-      let basis: "transcript" | "scenes" = "scenes";
+      let basis = "scenes" as "transcript" | "scenes";
       const found = ids.flatMap((id) => {
         const words = speech && !byScenes(id) ? (transcripts.current.get(id) ?? []) : [];
         const byWords = words.length > 20 ? findViralClips(id, words, analyses.current.get(id), opts) : [];
@@ -554,8 +556,19 @@ export function Editor({ plan }: { plan: PlanId }) {
         }
         return findClipsByScene(id, timeline.clips[id].info.duration, analyses.current.get(id)!, opts);
       });
-      const result = { clips: found.sort((a, b) => b.score - a.score).slice(0, 10), basis };
-      setViral({ ...result, improved: false, range });
+      let clips = found.sort((a, b) => b.score - a.score);
+      let improved = false;
+      if (basis === "transcript" && plan !== "free") {
+        // Pro and Studio: AI reads the whole transcript and picks, like the big clipping tools.
+        const spoken = ids.filter((id) => (transcripts.current.get(id)?.length ?? 0) > 20);
+        const picks = spoken.length ? await aiPickClips(mostSpoken(spoken), range, 8, true, weights) : null;
+        if (picks?.length) {
+          clips = [...picks, ...clips.filter((c) => c.clipId !== picks[0].clipId)].sort((a, b) => b.score - a.score);
+          improved = true;
+        }
+      }
+      const result = { clips: clips.slice(0, 10), basis };
+      setViral({ ...result, improved, range });
       return result;
     } catch (err) {
       if (!(err instanceof CancelledError)) setErrors((e) => [...e, "Couldn't analyse the video for viral clips. Please try again."]);
@@ -565,27 +578,36 @@ export function Editor({ plan }: { plan: PlanId }) {
     }
   }
 
-  async function improveViral() {
-    if (!viral) return;
-    // The video with the most speech gets the AI treatment.
-    const id = [...new Set(viral.clips.map((c) => c.clipId))].sort(
-      (a, b) => (transcripts.current.get(b)?.length ?? 0) - (transcripts.current.get(a)?.length ?? 0),
-    )[0];
-    const sentences = toSentences(transcripts.current.get(id) ?? []);
+  /**
+   * AI picks (Pro, Studio): Claude reads the whole transcript of one video
+   * and picks and packages the moments most likely to travel, like the big
+   * clipping tools do. Null when it isn't available (free plan, no speech,
+   * credits used up); `quiet` skips the error message, for automatic use.
+   */
+  async function aiPickClips(
+    clipId: string,
+    range: { min: number; max: number },
+    count: number,
+    quiet = false,
+    /** What the audience rewards (Clip Pack playbooks), for ranking the AI's scores. */
+    weights?: ViralClip["scores"],
+  ): Promise<ViralClip[] | null> {
+    if (plan === "free") return null;
+    const sentences = toSentences(transcripts.current.get(clipId) ?? []);
     if (sentences.length < 3) {
-      setErrors((e) => [...e, "AI needs a video with speech to improve the picks."]);
-      return;
+      if (!quiet) setErrors((e) => [...e, "AI needs a video with speech to pick clips."]);
+      return null;
     }
-    setTask({ label: "AI is reviewing every moment for hooks, curiosity and payoff…", progress: null });
+    setTask({ label: "AI is reading the whole conversation for the moments that will travel…", progress: null });
     try {
       const res = await fetch("/api/viral", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sentences: sentences.map(({ text, start, end }) => ({ text, start, end })),
-          minSeconds: viral.range.min,
-          maxSeconds: viral.range.max,
-          count: 8,
+          minSeconds: range.min,
+          maxSeconds: range.max,
+          count,
         }),
       });
       const body = (await res.json().catch(() => null)) as {
@@ -594,20 +616,20 @@ export function Editor({ plan }: { plan: PlanId }) {
       } | null;
       if (!res.ok || !body?.clips) {
         const messages: Record<string, string> = {
-          sign_in: "Sign in to improve clips with AI.",
-          upgrade: "Improving clips with AI is part of Pro and Studio.",
-          limit: "You've used today's AI allowance. The local picks still work.",
-          not_configured: "The AI assistant isn't available right now. The local picks still work.",
+          sign_in: "Sign in to let AI pick your clips.",
+          upgrade: "AI picks are part of Pro and Studio.",
+          limit: "You've used today's AI allowance, so these are the built-in picks.",
+          not_configured: "AI picks aren't set up on this site yet, so these are the built-in picks.",
         };
-        setErrors((e) => [...e, messages[body?.error ?? ""] ?? "AI couldn't review this video right now."]);
-        return;
+        if (!quiet || body?.error === "limit") setErrors((e) => [...e, messages[body?.error ?? ""] ?? "AI couldn't review this video right now, so these are the built-in picks."]);
+        return null;
       }
-      const picks: ViralClip[] = body.clips.map((c, i) => ({
-        id: `${id}:ai${i}`,
-        clipId: id,
+      return body.clips.map((c, i) => ({
+        id: `${clipId}:ai${i}`,
+        clipId,
         start: Math.max(0, sentences[c.startSentence].start - 0.15),
         end: sentences[c.endSentence].end + 0.3,
-        score: overallScore(c.scores),
+        score: overallScore(c.scores, weights),
         scores: c.scores,
         hook: sentences[c.startSentence].text,
         reasons: c.reasons,
@@ -615,12 +637,25 @@ export function Editor({ plan }: { plan: PlanId }) {
         caption: c.caption,
         hashtags: c.hashtags,
       }));
-      const others = viral.clips.filter((c) => c.clipId !== id);
-      setViral({ ...viral, clips: [...picks, ...others].sort((a, b) => b.score - a.score).slice(0, 10), improved: true });
+    } catch {
+      return null;
     } finally {
       setTask(null);
     }
   }
+
+  /** The video with the most speech among these: the one AI picks read. */
+  const mostSpoken = (ids: string[]) => [...ids].sort((a, b) => (transcripts.current.get(b)?.length ?? 0) - (transcripts.current.get(a)?.length ?? 0))[0];
+
+  async function improveViral() {
+    if (!viral) return;
+    const id = mostSpoken([...new Set(viral.clips.map((c) => c.clipId))]);
+    const picks = await aiPickClips(id, viral.range, 8);
+    if (!picks) return;
+    const others = viral.clips.filter((c) => c.clipId !== id);
+    setViral({ ...viral, clips: [...picks, ...others].sort((a, b) => b.score - a.score).slice(0, 10), improved: true });
+  }
+
 
   function useViralClip(clip: ViralClip) {
     setHistory((h) => [...h.slice(-19), timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }))]);
@@ -857,7 +892,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     const voiced = videos.filter((v) => timeline.clips[v.clipId]?.info.audioCodec).map((v) => ({ ...v, words: transcripts.current.get(v.clipId) ?? [] }));
     const action = videos.filter(hasAction);
     const fps = computeCanvas(timeline.clips[ids[0]].info, limits.maxShortSide, "9:16").fps;
-    const talk = voiced.length ? planTalkEdits(voiced, fps, styles) : [];
+    const talk = voiced.length ? planTalkEdits(voiced, fps, styles, editAiPicks.current) : [];
     const beat = action.length ? planEdits(action, styles) : [];
     return videos.filter(isTalking).length > videos.length / 2 ? [...talk, ...beat] : [...beat, ...talk];
   }
@@ -892,6 +927,10 @@ export function Editor({ plan }: { plan: PlanId }) {
           setTask(null);
         }
       }
+      // Pro and Studio: AI reads the whole conversation and picks the quotes and countdown moments.
+      editAiPicks.current = [];
+      const spoken = ids.filter((id) => (transcripts.current.get(id)?.length ?? 0) > 20);
+      if (spoken.length && plan !== "free") editAiPicks.current = (await aiPickClips(mostSpoken(spoken), { min: 7, max: 28 }, 8, true)) ?? [];
       setEditIds(ids);
       let found = planAllEdits(ids);
       const action = editVideos(ids).filter(hasAction);
