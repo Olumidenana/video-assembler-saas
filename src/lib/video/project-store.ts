@@ -33,6 +33,8 @@ export interface StoredProject {
   segments: { clipId: string; start: number; end: number }[];
   mode: "stitch" | "parts";
   savedAt: number;
+  /** The last Viral Clip Finder results, so they're still there after a reload. */
+  viral?: unknown;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;

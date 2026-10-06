@@ -78,7 +78,9 @@ export function Editor({ plan }: { plan: PlanId }) {
   const [analysisState, setAnalysisState] = useState<Record<string, ClipAnalysis>>({});
   const [assistant, setAssistant] = useState<AssistantMessage | null>(null);
   const [history, setHistory] = useState<Range[][]>([]);
-  const [restore, setRestore] = useState<{ savedAt: number; videos: number } | null>(null);
+  // The project saved on this device is put back automatically; this drives the "picked up where you left off" bar.
+  const [restoring, setRestoring] = useState(false);
+  const [welcomeBack, setWelcomeBack] = useState<{ savedAt: number; videos: number } | null>(null);
   const [memory, setMemory] = useState<"off" | "saved" | "too-large" | "unavailable">("off");
   // True once this session owns the saved project (so an untouched page never overwrites it).
   const persist = useRef(false);
@@ -109,13 +111,33 @@ export function Editor({ plan }: { plan: PlanId }) {
     };
   }, [engine]);
 
-  // Offer to restore the last project saved on this device.
+  // Put back the project saved on this device, so leaving the editor (Pricing,
+  // Account, a reload) never loses work. "Start fresh" is one click away.
   useEffect(() => {
     if (!projectStore.available()) return;
+    let cancelled = false;
     projectStore
       .load()
-      .then((saved) => saved && setRestore({ savedAt: saved.project.savedAt, videos: saved.clips.length }))
+      .then((saved) => {
+        if (saved && !cancelled) void restoreProject(saved);
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Once, on arrival; restoreProject reads the initial render's state on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Remember the scroll position too, so coming back lands on the same tool.
+  useEffect(() => {
+    const save = () => {
+      try {
+        sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
+      } catch {}
+    };
+    window.addEventListener("pagehide", save);
+    return () => window.removeEventListener("pagehide", save);
   }, []);
 
   // Remember edits (debounced) so a reload or closed tab doesn't lose work.
@@ -128,11 +150,12 @@ export function Editor({ plan }: { plan: PlanId }) {
           segments: timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end })),
           mode,
           savedAt: Date.now(),
+          viral: viral ?? undefined,
         })
         .catch(() => setMemory("unavailable"));
     }, 500);
     return () => clearTimeout(timer);
-  }, [timeline, mode]);
+  }, [timeline, mode, viral]);
 
   useEffect(() => {
     try {
@@ -220,14 +243,12 @@ export function Editor({ plan }: { plan: PlanId }) {
   }
 
   async function startFresh() {
-    setRestore(null);
+    setWelcomeBack(null);
     await projectStore.clear().catch(() => {});
   }
 
-  async function restoreProject() {
-    const saved = await projectStore.load().catch(() => null);
-    setRestore(null);
-    if (!saved) return;
+  async function restoreProject(saved: NonNullable<Awaited<ReturnType<typeof projectStore.load>>>) {
+    setRestoring(true);
     persist.current = true;
     setPending(saved.clips.map((c) => c.name));
     for (const stored of saved.clips) {
@@ -247,8 +268,17 @@ export function Editor({ plan }: { plan: PlanId }) {
     }
     dispatch({ type: "replaceSegments", segments: saved.project.segments });
     setMode(saved.project.mode);
+    const savedViral = saved.project.viral as typeof viral | undefined;
+    if (savedViral?.clips?.length) setViral(savedViral);
     setPending([]);
     setMemory("saved");
+    setRestoring(false);
+    setWelcomeBack({ savedAt: saved.project.savedAt, videos: saved.clips.length });
+    // Back to where they were on the page, once the restored tools have rendered.
+    try {
+      const y = Number(sessionStorage.getItem(SCROLL_KEY));
+      if (y > 0) requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: y })));
+    } catch {}
   }
 
   useEffect(() => {
@@ -274,7 +304,6 @@ export function Editor({ plan }: { plan: PlanId }) {
 
   async function addFiles(files: File[]) {
     // Adding new videos while a saved project is on offer means starting fresh.
-    if (restore) await startFresh();
     for (const file of files) {
       if (!file.type.startsWith("video/") && !VIDEO_EXTENSIONS.test(file.name)) {
         setErrors((e) => [...e, `${file.name}: not a video file.`]);
@@ -936,21 +965,30 @@ export function Editor({ plan }: { plan: PlanId }) {
 
         {task && <TaskBanner key={task.label} label={task.label} progress={task.progress} onCancel={cancelTask} />}
 
-        {restore && (
-          <div className="card flex flex-wrap items-center justify-between gap-4 border-brand/40 p-5" data-testid="restore">
-            <div>
-              <p className="font-medium">Welcome back! Continue where you left off?</p>
-              <p className="text-sm text-muted">
-                Your project from {timeAgo(restore.savedAt)} ({restore.videos} video{restore.videos === 1 ? "" : "s"}) is saved on this
-                device.
-              </p>
-            </div>
+        {restoring && (
+          <p className="notice notice-info animate-pulse" role="status" data-testid="restoring">
+            Restoring your project…
+          </p>
+        )}
+        {welcomeBack && !restoring && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ok/30 bg-ok/[0.06] px-4 py-2.5 text-sm" data-testid="restore">
+            <p>
+              ✓ Picked up where you left off: your project from {timeAgo(welcomeBack.savedAt)} ({welcomeBack.videos} video
+              {welcomeBack.videos === 1 ? "" : "s"}).
+            </p>
             <div className="flex gap-2">
-              <button type="button" className="btn btn-ghost" onClick={() => void startFresh()}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  // Clear the saved project and reload into an empty editor.
+                  void startFresh().then(() => window.location.reload());
+                }}
+              >
                 Start fresh
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => void restoreProject()} disabled={engineStatus === "error"}>
-                Restore project
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWelcomeBack(null)} aria-label="Dismiss">
+                ✕
               </button>
             </div>
           </div>
@@ -970,7 +1008,7 @@ export function Editor({ plan }: { plan: PlanId }) {
           }}
         />
         <div id="tool-start" className="scroll-mt-32">
-          {segments.length === 0 && !restore ? (
+          {segments.length === 0 && !restoring ? (
             <StartPanel onPick={pickGoal} onDrop={(files) => void addFiles(files)} />
           ) : (
             <label
@@ -1296,6 +1334,7 @@ function Timeline({
   );
 }
 
+const SCROLL_KEY = "anti-timeout:scroll";
 const SETTINGS_KEY = "anti-timeout:export-settings";
 const LOGO_KEY = "anti-timeout:logo";
 
