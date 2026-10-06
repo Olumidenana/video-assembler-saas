@@ -3,6 +3,8 @@
  * Pure functions: no FFmpeg, no DOM, fully unit-tested.
  */
 import { BIN_SECONDS, type ClipAnalysis, SILENCE_DB } from "./analysis";
+import { outputDuration, outputStarts } from "./transitions";
+import type { ExportItem } from "./types";
 
 export interface AnalyzedClip {
   clipId: string;
@@ -156,6 +158,11 @@ export interface MomentOptions {
   maxMoments: number;
   /** Signal weights (hook, curiosity = build-up, emotion = peak, value = intensity, pacing); audience playbooks tune these. */
   weights?: { hook: number; curiosity: number; emotion: number; value: number; pacing: number };
+  /**
+   * Look for the quiet ones instead: slow, still, but not silent (a voice or a
+   * score playing), with feeling that swells. For emotional edits.
+   */
+  calm?: boolean;
 }
 
 const CUT_THRESHOLD = 0.3;
@@ -242,9 +249,11 @@ export function findMoments(clipId: string, duration: number, a: ClipAnalysis, o
   // successor is the first bin wholly in the new shot.
   const useCuts = cuts.length >= ((n * BIN_SECONDS) / 60) * 2;
   const step = n > 4000 ? 4 : 2;
+  const grid = [...Array.from({ length: Math.floor(n / step) + 1 }, (_, i) => i * step).filter((b) => b < n), n];
+  // Calm scenes hold long shots, often longer than the moment: cut inside them on the grid too.
   const bounds = useCuts
-    ? [...new Set([0, ...cuts.map((c) => c + 1), n])].filter((b) => b <= n).sort((x, y) => x - y)
-    : [...Array.from({ length: Math.floor(n / step) + 1 }, (_, i) => i * step).filter((b) => b < n), n];
+    ? [...new Set([0, ...cuts.map((c) => c + 1), n, ...(opts.calm ? grid : [])])].filter((b) => b <= n).sort((x, y) => x - y)
+    : grid;
 
   const blocked = new Uint8Array(n);
   // Theme songs, plus 2 s either side so no clip opens or ends on their last notes.
@@ -257,6 +266,8 @@ export function findMoments(clipId: string, duration: number, a: ClipAnalysis, o
   const P = sum(raw);
   const B = sum(blocked);
   const C = sum(Array.from({ length: n }, (_, i) => (cutSet.has(i) ? 1 : 0)));
+  // Bins with sound in them (speech, score), for calm moments that still say something.
+  const A = sum(Array.from({ length: n }, (_, i) => (a.hasAudio && a.loudness[i] > -45 ? 1 : 0)));
   const avg = (s: number, e: number) => (e > s ? (P[e] - P[s]) / (e - s) : 0);
 
   const candidates: Moment[] = [];
@@ -288,8 +299,10 @@ export function findMoments(clipId: string, duration: number, a: ClipAnalysis, o
       const pacing = Math.min(1, (C[e] - C[s]) / (len * BIN_SECONDS) / 0.4);
       const arc = peakPos >= 0.2 && peakPos <= 0.92;
       const w = opts.weights ?? { hook: 0.28, curiosity: 0.18, emotion: 0.24, value: 0.18, pacing: 0.12 };
-      const base = w.hook * hook + w.curiosity * build + w.emotion * max + w.value * intensity + w.pacing * pacing;
-      const score = base * (arc ? 1 : 0.85) * (0.92 + 0.08 * (len / maxB));
+      const base = opts.calm
+        ? 0.35 * (1 - intensity) + 0.25 * (1 - pacing) + 0.2 * build + 0.2 * (A[e] - A[s]) / len
+        : w.hook * hook + w.curiosity * build + w.emotion * max + w.value * intensity + w.pacing * pacing;
+      const score = base * (arc || opts.calm ? 1 : 0.85) * (0.92 + 0.08 * (len / maxB));
       candidates.push({
         clipId,
         start: round(s * BIN_SECONDS),
@@ -378,12 +391,13 @@ export function mergeClose(ranges: Range[], gap: number): Range[] {
  * first gets near that peak. Skips the first and last second and a half so
  * the build-up and outro have room. Without analyses, a quarter of the way in.
  */
-export function outputPeak(items: { clipId: string; start: number; end: number }[], analyses: Map<string, ClipAnalysis>): number {
-  const total = items.reduce((sum, i) => sum + i.end - i.start, 0);
+export function outputPeak(items: Pick<ExportItem, "clipId" | "start" | "end" | "transitionIn">[], analyses: Map<string, ClipAnalysis>): number {
+  const total = outputDuration(items);
+  const starts = outputStarts(items);
   const fallback = Math.round(Math.min(2, total / 4) * 100) / 100;
   const points: { t: number; loud: number; motion: number }[] = [];
-  let offset = 0;
-  for (const item of items) {
+  for (const [i, item] of items.entries()) {
+    const offset = starts[i];
     const a = analyses.get(item.clipId);
     if (a) {
       for (let bin = Math.floor(item.start / BIN_SECONDS); bin * BIN_SECONDS < item.end && bin < a.motion.length; bin++) {
@@ -394,8 +408,8 @@ export function outputPeak(items: { clipId: string; start: number; end: number }
         });
       }
     }
-    offset += item.end - item.start;
   }
+  points.sort((x, y) => x.t - y.t);
   if (points.length < 4) return fallback;
   const scale = (values: number[]) => {
     const lo = Math.min(...values);

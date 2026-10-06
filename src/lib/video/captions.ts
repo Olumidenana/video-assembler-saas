@@ -3,6 +3,7 @@
  * libass (inside FFmpeg) burns into the export. Pure functions.
  */
 import type { Canvas } from "./commands";
+import { outputStarts } from "./transitions";
 import type { ExportItem } from "./types";
 
 export interface Word {
@@ -41,12 +42,13 @@ const clean = (text: string) => text.replace(/[{}\\]/g, "").replace(/\s+/g, " ")
 
 /**
  * Maps each segment's words onto the output timeline (segments play back to
- * back) and drops anything after `limitSeconds`.
+ * back, overlapping where they blend) and drops anything after `limitSeconds`.
  */
 export function wordsForOutput(items: ExportItem[], transcripts: Record<string, Word[]>, limitSeconds = Infinity): Word[] {
   const out: Word[] = [];
-  let offset = 0;
-  for (const item of items) {
+  const starts = outputStarts(items);
+  for (const [i, item] of items.entries()) {
+    const offset = starts[i];
     for (const w of transcripts[item.clipId] ?? []) {
       const mid = (w.start + w.end) / 2;
       if (mid < item.start || mid > item.end) continue;
@@ -55,7 +57,6 @@ export function wordsForOutput(items: ExportItem[], transcripts: Record<string, 
       if (start >= limitSeconds) continue;
       out.push({ text: w.text, start, end: Math.min(end, limitSeconds) });
     }
-    offset += item.end - item.start;
   }
   return out.filter((w) => clean(w.text) && w.end > w.start);
 }

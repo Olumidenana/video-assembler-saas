@@ -26,6 +26,13 @@ const TOOLS: Tool[] = [
     needs: (p) => (PLAN_LIMITS[p].aiVision ? null : "Studio"),
   },
   {
+    id: "tool-mashup",
+    label: "Mashup",
+    icon: "🎞️",
+    note: (p) => `${PLAN_LIMITS[p].mashupVideos} videos`,
+    needs: (p) => (PLAN_LIMITS[p].aiVision ? null : "Studio"),
+  },
+  {
     id: "tool-viral",
     label: "Viral clips",
     icon: "🔥",

@@ -207,6 +207,32 @@ thread pool), and Claude judges what happens, whether it works as a short, and w
 title and caption. Candidates are re-ranked by the verdicts. Only the stills leave the device.
 Costs 10 AI credits; if it's unavailable the pack carries on with the built-in picks.
 
+## Mashup (`src/lib/assistant/mashup.ts`, `src/app/editor/mashup-panel.tsx`)
+
+Cuts between several videos on moments that belong together. Every chosen video is analysed;
+`findBeats` takes 3-7 s moments from each and tags their feel from the measurements: **action**
+(loud, fast, intense), **rising** (the payoff of a build-up: energy well above the 10 s before it,
+e.g. a power-up or reveal) and **feels** (slow, still, but with a voice or score playing; found with
+`findMoments(..., { calm: true })`, which also cuts inside long shots). `suggestMashups` offers one
+edit per feel that at least two videos share (plus a "best of" when it isn't a repeat), taking beats
+from each video in turn, ordered as an arc (a strong opener, building, the strongest last) with
+consecutive beats from different videos. Each has a transition and music style to suit it; the
+card shows the moments and plays the cut live from the user's own files.
+
+**AI Theme Match** (Studio, `POST /api/mashup/themes`, `matchThemes`, 10 AI credits): two stills
+from each of up to 18 beats go to Claude, which groups moments from different videos that share a
+story theme (rivals, sacrifice, betrayal, a power awakening) or a visual rhyme, in play order, with
+music and a transition. Plans: Free mixes 2 videos, Pro 5, Studio 12.
+
+**Transitions** (`src/lib/video/transitions.ts`): an item's `transitionIn` overlaps it with the
+previous one (FFmpeg `xfade` + a crossfade of the sound). Only the short overlapping pieces are
+blended (split/trim into head, body and tail, joined with concat), because xfade over whole
+segments makes FFmpeg queue frames until memory runs out; and since the browser's FFmpeg 5.1
+deadlocks on transition graphs with more than three video inputs, longer runs are rendered three
+segments at a time (high-quality intermediates) and then joined with the transitions between them.
+`outputStarts`/`outputDuration` map source time to output time for captions, the music drop and the
+progress bar.
+
 ## Music (`src/lib/audio/music.ts`)
 
 Original beats composed in the browser for each export (Phonk, Hype trap, Afro/Amapiano,

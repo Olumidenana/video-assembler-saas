@@ -1,3 +1,5 @@
+import type { Transition } from "./transitions";
+
 export interface MediaInfo {
   /** Seconds. */
   duration: number;
@@ -40,4 +42,6 @@ export interface ExportItem {
   end: number;
   /** Cut in from a white flash (after a flash-forward intro). */
   flashIn?: boolean;
+  /** Blend in from the previous item (overlaps it; see transitions.ts). */
+  transitionIn?: Transition;
 }

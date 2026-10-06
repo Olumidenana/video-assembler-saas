@@ -186,3 +186,39 @@ describe("AI Vision", () => {
     expect(rpc).toHaveBeenCalledWith("consume_ai_request", { p_user_id: "u1", p_limit: 80, p_cost: 10 });
   });
 });
+
+describe("AI Theme Match", () => {
+  const jpeg = "/9j/" + "A".repeat(400);
+  const moment = (id: string, video: string) => ({ id, video, start: 10, end: 15, notes: "action", frames: [jpeg, jpeg] });
+
+  it("keeps only mashups that cut between videos, with known moments", async () => {
+    const { matchThemes } = await import("./claude");
+    create.mockResolvedValue(
+      reply({
+        mashups: [
+          { title: "Rivals", theme: "rivals who respect each other", why: "Same stare-down.", hook: "Same energy 🔥", ids: ["a1", "b1", "a2", "zz", "a1"], music: "phonk", transition: "fadewhite" },
+          { title: "One video", theme: "x", why: "", hook: "", ids: ["a1", "a2", "a3"], music: "lofi", transition: "fade" },
+          { title: "Too short", theme: "x", why: "", hook: "", ids: ["a1", "b1"], music: "lofi", transition: "fade" },
+        ],
+      }),
+    );
+    const out = await matchThemes([moment("a1", "Video 1"), moment("a2", "Video 1"), moment("a3", "Video 1"), moment("b1", "Video 2")]);
+    expect(out).toEqual([
+      { title: "Rivals", theme: "rivals who respect each other", why: "Same stare-down.", hook: "Same energy", ids: ["a1", "b1", "a2"], music: "phonk", transition: "fadewhite" },
+    ]);
+    expect(create.mock.calls.at(-1)![0].messages[0].content.filter((b: { type: string }) => b.type === "image")).toHaveLength(8);
+  });
+
+  it("is Studio-only, needs two videos and charges 10 AI credits", async () => {
+    const { POST: themes } = await import("@/app/api/mashup/themes/route");
+    const req = (moments: unknown) => new NextRequest("http://x/api/mashup/themes", { method: "POST", body: JSON.stringify({ moments }) });
+    viewer = { user: { id: "u1" }, plan: "pro" };
+    expect((await themes(req([moment("a", "V1"), moment("b", "V2")]))).status).toBe(402);
+    viewer = { user: { id: "u1" }, plan: "studio" };
+    expect((await themes(req([moment("a", "V1"), moment("b", "V1")]))).status).toBe(400);
+    create.mockResolvedValue(reply({ mashups: [] }));
+    rpc.mockClear();
+    expect((await themes(req([moment("a", "V1"), moment("b", "V2")]))).status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith("consume_ai_request", { p_user_id: "u1", p_limit: 80, p_cost: 10 });
+  });
+});

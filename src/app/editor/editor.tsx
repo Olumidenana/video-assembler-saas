@@ -22,10 +22,13 @@ import { findClipsByScene, findViralClips, overallScore, toSentences, type Viral
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
 import { StartPanel, type Goal } from "./start-panel";
 import { ClipPack } from "./clip-pack";
+import { MashupPanel, type MashupChoice } from "./mashup-panel";
+import { findBeats, type Beat, type Mashup, MOODS, suggestMashups, transitionFor } from "@/lib/assistant/mashup";
+import { outputDuration, outputStarts, TRANSITIONS } from "@/lib/video/transitions";
 import type { Playbook } from "@/lib/assistant/playbooks";
 import { pickHooks } from "@/lib/assistant/hooks";
 // Type-only (erased at build time), so the server-only module never reaches the browser.
-import type { VisionVerdict } from "@/lib/assistant/claude";
+import type { ThemeMashup, VisionVerdict } from "@/lib/assistant/claude";
 import { TaskBanner } from "./task-banner";
 import { WorkspaceNav } from "./workspace-nav";
 import { ShareButton } from "./share-button";
@@ -106,6 +109,7 @@ export function Editor({ plan }: { plan: PlanId }) {
   const transcriptKeys = useRef(new Map<string, string>());
   const [task, setTask] = useState<{ label: string; progress: number | null } | null>(null);
   const [viral, setViral] = useState<{ clips: ViralClip[]; basis: "transcript" | "scenes"; improved: boolean; range: ViralRange } | null>(null);
+  const [mashups, setMashups] = useState<Mashup[] | null>(null);
   const [logo, setLogo] = useState<{ url: string; bytes: Uint8Array } | null>(() => loadLogo());
   const fileInput = useRef<HTMLInputElement>(null);
   // The user's own music; kept in memory only (it isn't theirs to store with the project).
@@ -823,6 +827,144 @@ export function Editor({ plan }: { plan: PlanId }) {
   }
 
   /**
+   * Mashup: analyses the chosen videos, finds beats that share a feel across
+   * them and, with AI Theme Match (Studio), lets Claude group them by story
+   * theme as well.
+   */
+  async function findMashups(videoIds: string[], useAi: boolean) {
+    setMashups(null);
+    const ids = videoIds.filter((id) => timeline.clips[id]).slice(0, limits.mashupVideos);
+    if (ids.length < 2) return;
+    try {
+      const total = ids.reduce((sum, id) => sum + timeline.clips[id].info.duration, 0);
+      let done = 0;
+      for (const id of ids) {
+        const { info } = timeline.clips[id];
+        await getAnalysis(id, info, (r) => setTask({ label: `Watching ${ids.length} videos for moments that match…`, progress: total ? (done + r * info.duration) / total : null }));
+        done += info.duration;
+      }
+      const videos = ids.map((id) => ({ clipId: id, duration: timeline.clips[id].info.duration, analysis: analyses.current.get(id)! }));
+      let found = suggestMashups(videos);
+      if (useAi && limits.aiVision) {
+        const themed = await matchThemesWithAi(ids, findBeats(videos));
+        if (themed.length) found = [...themed, ...found];
+      }
+      setMashups(found);
+    } catch (err) {
+      if (!(err instanceof CancelledError)) setErrors((e) => [...e, "Couldn't analyse the videos for a mashup. Please try again."]);
+    } finally {
+      setTask(null);
+    }
+  }
+
+  /** AI Theme Match: two stills from each of the strongest beats per video go to Claude, which groups them by theme. */
+  async function matchThemesWithAi(ids: string[], beats: Beat[]): Promise<Mashup[]> {
+    const label = "AI Theme Match is looking at the moments…";
+    setTask({ label, progress: 0 });
+    // The strongest beats of every feel from each video, taken in turn, at most 18.
+    const perVideo = ids.map((id) => beats.filter((b) => b.clipId === id).sort((a, b) => b.fit - a.fit).slice(0, 6));
+    const chosen: Beat[] = [];
+    for (let round = 0; round < 6 && chosen.length < 18; round++) {
+      for (const list of perVideo) if (list[round] && chosen.length < 18) chosen.push(list[round]);
+    }
+    try {
+      const moments = [];
+      for (const [i, b] of chosen.entries()) {
+        const len = b.end - b.start;
+        const frames = await engine.extractFrames(b.clipId, [b.start + len * 0.3, b.start + len * 0.75], 384);
+        const said = (transcripts.current.get(b.clipId) ?? []).filter((w) => w.start >= b.start && w.end <= b.end).map((w) => w.text).join(" ").trim();
+        moments.push({
+          id: b.id,
+          video: `Video ${ids.indexOf(b.clipId) + 1} (${timeline.clips[b.clipId].file.name})`,
+          start: b.start,
+          end: b.end,
+          notes: `measured feel: ${MOODS[b.mood].feel}${said ? `; says: "${said.slice(0, 160)}"` : ""}`,
+          frames: frames.flatMap((f) => (f ? [toBase64(f)] : [])),
+        });
+        setTask({ label, progress: ((i + 1) / chosen.length) * 0.5 });
+      }
+      setTask({ label: "AI Theme Match is grouping them by theme…", progress: null });
+      const res = await fetch("/api/mashup/themes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ moments }) });
+      const body = (await res.json().catch(() => null)) as { mashups?: ThemeMashup[]; error?: string } | null;
+      if (!res.ok || !body?.mashups) {
+        const why: Record<string, string> = {
+          sign_in: "sign in to use it",
+          upgrade: "it's part of Studio",
+          limit: "today's AI credits are used up",
+          not_configured: "it isn't set up on this site yet",
+          busy: "the AI is busy",
+        };
+        setErrors((e) => [...e, `AI Theme Match was skipped (${why[body?.error ?? ""] ?? "it didn't respond"}). These matches are by feel.`]);
+        return [];
+      }
+      const byId = new Map(chosen.map((b) => [b.id, b]));
+      return body.mashups.map((m, i) => {
+        const list = m.ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+        return {
+          id: `ai-${i}`,
+          title: m.title,
+          emoji: "🧠",
+          why: [m.theme && `Theme: ${m.theme}.`, m.why].filter(Boolean).join(" "),
+          hook: m.hook || "Same story, different worlds",
+          beats: list,
+          music: m.music,
+          transition: m.transition,
+          length: list.reduce((sum, b) => sum + b.end - b.start, 0),
+          ai: true,
+        };
+      });
+    } catch (err) {
+      if (err instanceof CancelledError) throw err;
+      setErrors((e) => [...e, "AI Theme Match was skipped (something went wrong). These matches are by feel."]);
+      return [];
+    }
+  }
+
+  /** Exports a mashup as one 9:16 video: transitions between beats, hook, music dropping on the strongest beat, end card. */
+  async function makeMashup(m: Mashup, choice: MashupChoice) {
+    const items: ExportItem[] = m.beats.map((b, i) => {
+      const type = transitionFor(m, b, choice.transition);
+      return {
+        clipId: b.clipId,
+        info: timeline.clips[b.clipId].info,
+        start: b.start,
+        end: b.end,
+        ...(i > 0 ? { transitionIn: { type, duration: TRANSITIONS.find((t) => t.id === type)?.duration ?? 0.3 } } : {}),
+      };
+    });
+    // The beat drops on the strongest moment's peak, wherever it lands after the transitions.
+    const strongest = m.beats.reduce((best, b, i) => (b.fit > m.beats[best].fit ? i : best), 0);
+    const starts = outputStarts(items);
+    const last = items[items.length - 1];
+    const drop = starts[strongest] + (m.beats[strongest].peak - m.beats[strongest].start);
+    const mashupSettings: ExportSettings = {
+      ...settings,
+      aspect: "9:16",
+      fit: "blur",
+      captions: false,
+      hook: { on: true, text: "" },
+      progressBar: true,
+      music: choice.music === "none" ? { ...settings.music, style: "none" } : { style: choice.music, volume: 0.7, original: 0.7, duck: true },
+    };
+    setSettings(mashupSettings);
+    document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
+    await startExport(items, "stitch", {
+      settings: mashupSettings,
+      hooks: new Map([[itemKey(last), m.hook]]),
+      drops: new Map([[itemKey(last), Math.max(1, Math.min(drop, outputDuration(items) - 1))]]),
+      endCard: 1.6,
+      outro: "Which one hit hardest? Comment below",
+      normalize: true,
+    });
+  }
+
+  function mashupToTimeline(m: Mashup) {
+    setHistory((h) => [...h.slice(-19), timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }))]);
+    dispatch({ type: "replaceSegments", segments: m.beats.map(({ clipId, start, end }) => ({ clipId, start, end })) });
+    document.querySelector("[data-testid=segment-list]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  /**
    * Exports `items`. A Clip Pack passes its own settings (it changes them and
    * exports in the same click, before React state updates land), the hook
    * text for each clip, and a post kit to save alongside the videos.
@@ -913,7 +1055,7 @@ export function Editor({ plan }: { plan: PlanId }) {
                 ? wordsForOutput(renderItems, Object.fromEntries(transcripts.current), limits.captionSeconds)
                 : [];
               const hookText = s.hook.on ? hookFor(renderItems, s, run.hooks) : null;
-              const total = renderItems.reduce((sum, i) => sum + i.end - i.start, 0);
+              const total = outputDuration(renderItems);
               const card = run.endCard ?? 0;
               // On the end card when there is one; else over the last moments of the clip.
               const outro = run.outro && total > 8 ? { text: run.outro, start: card ? total - 0.2 : total - 1.6, end: total + card } : undefined;
@@ -1176,6 +1318,19 @@ export function Editor({ plan }: { plan: PlanId }) {
 
         {segments.length > 0 && (
           <ClipPack limits={limits} busy={Boolean(task) || running || engineStatus !== "ready"} onMake={(p, n, v) => void makeClipPack(p, n, v)} />
+        )}
+
+        {segments.length > 0 && (
+          <MashupPanel
+            videos={Object.keys(clips).map((id) => ({ id, name: clips[id].file.name, url: clips[id].url, color: colors[id] }))}
+            limits={limits}
+            busy={Boolean(task) || running || engineStatus !== "ready"}
+            mashups={mashups?.filter((m) => m.beats.every((b) => clips[b.clipId])) ?? null}
+            onFind={(ids, ai) => void findMashups(ids, ai)}
+            onMake={(m, choice) => void makeMashup(m, choice)}
+            onTimeline={mashupToTimeline}
+            onAddVideos={() => fileInput.current?.click()}
+          />
         )}
 
         {segments.length > 0 && (

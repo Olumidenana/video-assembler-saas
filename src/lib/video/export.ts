@@ -12,6 +12,8 @@ import {
   OVERLAY_FILES,
 } from "./commands";
 import type { VideoEngine } from "./engine";
+import { clipPath } from "./commands";
+import { chunkTransitions, hasTransitions, MAX_TRANSITION_INPUTS, outputDuration } from "./transitions";
 import type { ExportItem } from "./types";
 
 export type ExportMethod = "copy" | "reencode";
@@ -57,7 +59,7 @@ const needsPixels = (o: ExportOptions) =>
 
 /** Which method an export of these items will use. */
 export function chooseMethod(items: ExportItem[], options: ExportOptions): ExportMethod {
-  if (needsPixels(options) || !canStreamCopy(items, options.maxShortSide)) return "reencode";
+  if (needsPixels(options) || hasTransitions(items) || !canStreamCopy(items, options.maxShortSide)) return "reencode";
   return options.fastCut || items.every(isUntrimmed) ? "copy" : "reencode";
 }
 
@@ -88,7 +90,7 @@ async function render(
   const method = chooseMethod(items, options);
   const output = `/${name}`;
   const clipIds = [...new Set(items.map((i) => i.clipId))];
-  const totalDuration = items.reduce((sum, i) => sum + (i.end - i.start), 0);
+  const totalDuration = outputDuration(items);
 
   const canvas = computeCanvas(items[0].info, options.maxShortSide, options.aspect);
   const ass = method === "reencode" ? (options.captions?.(items, canvas) ?? null) : null;
@@ -105,6 +107,39 @@ async function render(
     : undefined;
   if (track && music) overlayFiles[music.path] = track.bytes;
 
+  // Long runs with transitions: render chunks of a few segments first (the
+  // browser's FFmpeg deadlocks on bigger transition graphs), then join those.
+  let renderItems = items;
+  let mountIds = clipIds;
+  if (method === "reencode" && hasTransitions(items) && items.length > MAX_TRANSITION_INPUTS) {
+    const { chunks, joins } = chunkTransitions(items);
+    const steps = chunks.length + 1.5; // the final pass carries the overlays and audio: weigh it more
+    renderItems = [];
+    for (const [c, chunk] of chunks.entries()) {
+      const path = `/chunk-${c}.mkv`;
+      const len = outputDuration(chunk);
+      const piece = await engine.run(
+        [...new Set(chunk.map((i) => i.clipId))],
+        buildReencodeArgs(chunk, canvas, path, { fit: options.aspect && options.aspect !== "original" ? (options.fit ?? "crop") : undefined, intermediate: true }),
+        path,
+        { totalDuration: len, onProgress: (r) => onProgress?.((c + r) / steps) },
+      );
+      const id = `chunk${c}`;
+      overlayFiles[clipPath(id)] = piece;
+      renderItems.push({
+        clipId: id,
+        info: { ...items[0].info, duration: len, width: canvas.width, height: canvas.height, fps: canvas.fps, rotation: 0, videoCodec: "h264", audioCodec: "pcm_s16le", audioSampleRate: 48000, audioChannels: 2 },
+        start: 0,
+        end: len,
+        transitionIn: joins[c],
+      });
+    }
+    mountIds = [];
+    const done = chunks.length / steps;
+    const report = onProgress;
+    onProgress = report && ((r: number) => report(done + r * (1 - done)));
+  }
+
   const bytes =
     method === "copy"
       ? await engine.run(
@@ -115,9 +150,10 @@ async function render(
           { "/list.txt": buildConcatList(items) },
         )
       : await engine.run(
-          clipIds,
-          buildReencodeArgs(items, canvas, output, {
-            fit: options.aspect && options.aspect !== "original" ? (options.fit ?? "crop") : undefined,
+          mountIds,
+          buildReencodeArgs(renderItems, canvas, output, {
+            // Chunks already have the canvas size and framing.
+            fit: renderItems !== items ? undefined : options.aspect && options.aspect !== "original" ? (options.fit ?? "crop") : undefined,
             watermark: options.watermark,
             logo: Boolean(options.logo),
             captions: Boolean(ass),

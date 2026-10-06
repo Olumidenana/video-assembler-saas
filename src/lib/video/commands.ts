@@ -1,3 +1,4 @@
+import { hasTransitions, outputDuration, overlaps } from "./transitions";
 import type { ExportItem, MediaInfo } from "./types";
 
 /** Where a clip's file is mounted (read-only WORKERFS) inside the FFmpeg virtual FS. */
@@ -140,6 +141,8 @@ export interface Overlays {
   normalize?: boolean;
   /** Seconds of end card: the last frame holds, dims, and the sound plays out under the call to action. */
   endCard?: number;
+  /** A piece that will be re-encoded again (chunked transitions): higher quality, lossless sound, Matroska. */
+  intermediate?: boolean;
 }
 
 export interface MusicMix {
@@ -210,10 +213,54 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
   const endCard = overlays.endCard && overlays.endCard > 0 ? overlays.endCard : 0;
   const hasPost = overlays.watermark || overlays.logo || overlays.captions || overlays.progressBar || endCard > 0;
   const music = overlays.music;
-  const clipsTotal = items.reduce((sum, i) => sum + i.end - i.start, 0);
+  const clipsTotal = outputDuration(items);
   const vJoined = endCard ? "vcat" : hasPost ? "vjoined" : "vout";
   const aJoined = endCard ? "acat" : music ? "ajoined" : "aout";
-  filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[${vJoined}][${aJoined}]`);
+  if (hasTransitions(items)) {
+    // xfade over whole segments makes FFmpeg queue the next segment's frames
+    // until the overlap (memory runs out in the browser). Instead each segment
+    // is split into head | body | tail; a transition blends only the short
+    // tail of one with the head of the next, and concat joins the pieces.
+    const o = overlaps(items);
+    const frame = 1 / fps;
+    const pieces: string[] = [];
+    items.forEach((item, i) => {
+      const len = item.end - item.start;
+      const dIn = o[i];
+      const dOut = o[i + 1] ?? 0;
+      const parts = [dIn > 0 && "h", "b", dOut > 0 && "t"].filter((x): x is string => Boolean(x));
+      const range = (part: string) => (part === "h" ? [0, dIn] : part === "b" ? [dIn, len - dOut] : [len - dOut, len]);
+      if (parts.length === 1) {
+        filters.push(`[v${i}]null[vb${i}]`, `[a${i}]anull[ab${i}]`);
+      } else {
+        filters.push(`[v${i}]split=${parts.length}${parts.map((x) => `[v${i}${x}]`).join("")}`);
+        filters.push(`[a${i}]asplit=${parts.length}${parts.map((x) => `[a${i}${x}]`).join("")}`);
+        for (const x of parts) {
+          const [from, to] = range(x);
+          filters.push(
+            // xfade needs a declared constant frame rate, which trim doesn't pass on.
+            `[v${i}${x}]trim=start=${secs(from)}:end=${secs(to)},setpts=PTS-STARTPTS${x === "b" ? "" : `,fps=${fps}`}[v${x}${i}]`,
+            `[a${i}${x}]atrim=start=${secs(from)}:end=${secs(to)},asetpts=PTS-STARTPTS[a${x}${i}]`,
+          );
+        }
+      }
+      const t = item.transitionIn;
+      if (t && dIn > 0) {
+        // A frame shorter than the pieces, so rounding never leaves xfade waiting on a missing frame.
+        filters.push(
+          `[vt${i - 1}][vh${i}]xfade=transition=${t.type}:duration=${secs(Math.max(frame, dIn - frame))}:offset=0[vT${i}]`,
+          `[at${i - 1}]afade=t=out:st=0:d=${secs(dIn)}[atf${i}]`,
+          `[ah${i}]afade=t=in:st=0:d=${secs(dIn)}[ahf${i}]`,
+          `[atf${i}][ahf${i}]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[aT${i}]`,
+        );
+        pieces.push(`[vT${i}][aT${i}]`);
+      }
+      pieces.push(`[vb${i}][ab${i}]`);
+    });
+    filters.push(`${pieces.join("")}concat=n=${pieces.length}:v=1:a=1[${vJoined}][${aJoined}]`);
+  } else {
+    filters.push(`${pairs.join("")}concat=n=${items.length}:v=1:a=1[${vJoined}][${aJoined}]`);
+  }
   if (endCard) {
     // Hold the last frame and dim it; silence-pad the sound (music, if any, carries on over it).
     filters.push(
@@ -303,10 +350,9 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     "-filter_complex_threads", String(FILTER_THREADS),
     "-filter_complex", filters.join(";"),
     "-map", "[vout]", "-map", "[aout]",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", overlays.intermediate ? "18" : "23", "-pix_fmt", "yuv420p",
     "-threads", String(ENCODER_THREADS),
-    "-c:a", "aac", "-b:a", "128k",
-    "-movflags", "+faststart",
+    ...(overlays.intermediate ? ["-c:a", "pcm_s16le"] : ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]),
     output,
   ];
 }

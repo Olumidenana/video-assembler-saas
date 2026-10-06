@@ -1,5 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
+import type { MusicStyle } from "@/lib/audio/music";
+import type { TransitionType } from "@/lib/video/transitions";
 import { sanitizeActions, type EditorAction, type TimelineSummary } from "./actions";
 
 const MODEL = "claude-opus-5-5";
@@ -340,6 +342,131 @@ export async function judgeClipsVisually(candidates: VisionCandidate[], audience
           .slice(0, 6)
           .map((h) => (h.startsWith("#") ? h : `#${h}`).replace(/\s+/g, "").slice(0, 40)),
         keep: c.keep !== false,
+      },
+    ];
+  });
+}
+
+/** One moment offered to AI Theme Match: which video it's from, when, its measured feel, and a few frames. */
+export interface ThemeCandidate {
+  id: string;
+  /** Which source video, e.g. "Video 2 (naruto-ep-133.mp4)". */
+  video: string;
+  start: number;
+  end: number;
+  /** Measured feel and anything said in it. */
+  notes: string;
+  frames: string[];
+}
+
+export interface ThemeMashup {
+  title: string;
+  /** The shared theme in a few words ("rivals who respect each other"). */
+  theme: string;
+  why: string;
+  hook: string;
+  /** Moment ids in play order. */
+  ids: string[];
+  music: MusicStyle;
+  transition: TransitionType;
+}
+
+const THEME_MUSIC = ["phonk", "trap", "afro", "cinematic", "lofi"] as const satisfies readonly MusicStyle[];
+const THEME_TRANSITIONS = ["fadewhite", "smoothleft", "zoomin", "hblur", "fade", "fadeblack", "circleopen"] as const satisfies readonly TransitionType[];
+
+const THEME_SYSTEM = `You are an editor who makes viral fan edits and mashups (anime, films, series, games, sports). You are shown short moments from several different videos, each as a few frames in time order, with the feel the editing software measured.
+
+Group moments from DIFFERENT videos that share a theme or say the same thing, so cutting between them makes a mashup fans want to share. Strong themes: rivals or enemies who become allies, sacrifice, betrayal, a mentor or a loss, training and never giving up, a power awakening or transformation, the underdog rising, friendship and loyalty, revenge, the calm before the storm. Visual rhymes work too: the same pose, gesture, shot or action across videos (two characters both screaming, both falling, both looking at the sky).
+
+Rules:
+- Each mashup uses 3 to 8 moments from at least 2 different videos. A moment can be in more than one mashup.
+- Order them as a story: open on a moment that hooks, build, and end on the strongest payoff.
+- Only group what the frames actually show. If nothing truly shares a theme, return fewer mashups or none.
+- Give up to 3 mashups, best first.
+
+For each mashup write:
+- title: a short name (max 40 characters).
+- theme: the shared theme in a few words.
+- why: one sentence on why these moments belong together and why fans would share it.
+- hook: overlay text for the first 3 seconds, at most 6 words, no emoji, that opens a loop the edit closes.
+- ids: the moment ids in play order.
+- music: phonk (aggressive fights, hype), trap (hard energy), cinematic (epic or emotional swells and reveals), lofi (sad, nostalgic, quiet), or afro (light, fun).
+- transition: fadewhite (flash cut for impacts), smoothleft (fast whip), zoomin (hype and reveals), hblur (smooth motion), fade (emotional dissolve), fadeblack (endings and time jumps), circleopen (iris).`;
+
+const THEME_SCHEMA = {
+  type: "object",
+  properties: {
+    mashups: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          theme: { type: "string" },
+          why: { type: "string" },
+          hook: { type: "string" },
+          ids: { type: "array", items: { type: "string" } },
+          music: { type: "string", enum: [...THEME_MUSIC] },
+          transition: { type: "string", enum: [...THEME_TRANSITIONS] },
+        },
+        required: ["title", "theme", "why", "hook", "ids", "music", "transition"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["mashups"],
+  additionalProperties: false,
+};
+
+/** AI Theme Match: Claude looks at moments from several videos and groups the ones that share a theme into mashups. */
+export async function matchThemes(candidates: ThemeCandidate[]): Promise<ThemeMashup[]> {
+  const client = new Anthropic({ timeout: 90_000, maxRetries: 1 });
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [
+    { type: "text", text: `${candidates.length} moments from ${new Set(candidates.map((c) => c.video)).size} videos follow. Group them into mashups.` },
+  ];
+  for (const c of candidates) {
+    content.push({
+      type: "text",
+      text: `Moment id "${c.id}" from ${c.video}, ${mmss(c.start)}-${mmss(c.end)} (${Math.round(c.end - c.start)} s). Notes: ${c.notes}. ${c.frames.length} frames:`,
+    });
+    for (const data of c.frames) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data } });
+  }
+
+  const response = await client.beta.messages.create({
+    model: MODEL,
+    max_tokens: 6000,
+    output_config: { effort: "low", format: { type: "json_schema", schema: THEME_SCHEMA } },
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    system: THEME_SYSTEM,
+    messages: [{ role: "user", content }],
+  });
+
+  if (response.stop_reason === "refusal") throw new AssistantError("AI Theme Match can't review these videos.");
+  const text = response.content.find((b) => b.type === "text");
+  if (!text || text.type !== "text") throw new AssistantError("No answer from AI Theme Match.");
+  let parsed: { mashups?: unknown };
+  try {
+    parsed = JSON.parse(text.text);
+  } catch {
+    throw new AssistantError("AI Theme Match's answer couldn't be read.");
+  }
+
+  const videoOf = new Map(candidates.map((c) => [c.id, c.video]));
+  const str = (v: unknown, len: number) => (typeof v === "string" ? v.trim().slice(0, len) : "");
+  return (Array.isArray(parsed.mashups) ? parsed.mashups : []).slice(0, 3).flatMap((m: Record<string, unknown>) => {
+    const ids = [...new Set((Array.isArray(m.ids) ? m.ids : []).filter((id): id is string => typeof id === "string" && videoOf.has(id)))].slice(0, 8);
+    // A mashup cuts between videos; anything less isn't one.
+    if (ids.length < 3 || new Set(ids.map((id) => videoOf.get(id))).size < 2) return [];
+    return [
+      {
+        title: str(m.title, 50) || "Theme mashup",
+        theme: str(m.theme, 80),
+        why: str(m.why, 240),
+        hook: str(m.hook, 60).replace(/\p{Extended_Pictographic}|️/gu, "").trim(),
+        ids,
+        music: THEME_MUSIC.find((x) => x === m.music) ?? "cinematic",
+        transition: THEME_TRANSITIONS.find((x) => x === m.transition) ?? "fade",
       },
     ];
   });

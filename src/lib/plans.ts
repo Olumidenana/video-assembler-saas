@@ -24,8 +24,10 @@ export interface PlanLimits {
   aiDailyLimit: number;
   /** Finished clips per Clip Pack (one click: find, package, export). */
   packClips: number;
-  /** AI Vision: Claude looks at frames to judge and write the clips. */
+  /** AI Vision: Claude looks at frames to judge and write the clips (and, in Mashup, match them by theme). */
   aiVision: boolean;
+  /** Videos one mashup can cut between. */
+  mashupVideos: number;
 }
 
 /**
@@ -46,6 +48,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     aiDailyLimit: 5,
     packClips: 1,
     aiVision: false,
+    mashupVideos: 2,
   },
   pro: {
     label: "Pro",
@@ -59,6 +62,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     aiDailyLimit: 40,
     packClips: 3,
     aiVision: false,
+    mashupVideos: 5,
   },
   studio: {
     label: "Studio",
@@ -72,6 +76,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     aiDailyLimit: 80,
     packClips: 8,
     aiVision: true,
+    mashupVideos: 12,
   },
 };
 

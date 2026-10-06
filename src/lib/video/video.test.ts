@@ -1,3 +1,4 @@
+import { chunkTransitions, outputDuration, outputStarts, overlaps } from "./transitions";
 import { describe, expect, it } from "vitest";
 import {
   buildConcatList,
@@ -182,6 +183,43 @@ describe("command builders", () => {
     // The bar and the music run to the end of the card.
     expect(graph).toContain("d=13.600[barsrc]");
     expect(graph).toContain("atrim=end=13.600");
+  });
+
+  it("blends segments with transitions, overlapping them, and hard-cuts where there is none", () => {
+    const items = [
+      item({ start: 0, end: 4 }),
+      item({ clipId: "b", start: 10, end: 16, transitionIn: { type: "fadewhite", duration: 0.25 } }),
+      item({ start: 20, end: 25 }),
+      item({ clipId: "b", start: 30, end: 31.2, transitionIn: { type: "fade", duration: 0.6 } }),
+    ];
+    expect(overlaps(items)).toEqual([0, 0.25, 0, 0.4]); // capped at a third of the 1.2 s segment
+    expect(outputStarts(items)).toEqual([0, 3.75, 9.75, 14.35]);
+    expect(outputDuration(items)).toBe(15.55);
+    const args = buildReencodeArgs(items, { width: 720, height: 1280, fps: 30 }, "/out.mp4", { progressBar: true });
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    // Only the short overlapping pieces are blended; concat joins everything in order.
+    expect(graph).toContain("[v0]split=2[v0b][v0t]");
+    expect(graph).toContain("[v0t]trim=start=3.750:end=4.000,setpts=PTS-STARTPTS,fps=30[vt0]");
+    expect(graph).toContain("[v1h]trim=start=0.000:end=0.250,setpts=PTS-STARTPTS,fps=30[vh1]");
+    expect(graph).toContain("[vt0][vh1]xfade=transition=fadewhite:duration=0.217:offset=0[vT1]");
+    expect(graph).toContain("[atf1][ahf1]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[aT1]");
+    expect(graph).toContain("[v2]split=2[v2b][v2t]"); // a hard cut in, a transition out
+    expect(graph).toContain("[vt2][vh3]xfade=transition=fade:duration=0.367:offset=0[vT3]");
+    expect(graph).toContain("[vb0][ab0][vT1][aT1][vb1][ab1][vb2][ab2][vT3][aT3][vb3][ab3]concat=n=6:v=1:a=1[vjoined][aout]");
+    expect(graph).toContain("d=15.550[barsrc]");
+    expect(chooseMethod(items, { maxShortSide: Infinity, fastCut: true })).toBe("reencode");
+  });
+
+  it("renders long transition runs in chunks of three with the same timing", () => {
+    const fade = { type: "fade" as const, duration: 0.6 };
+    const items = [0, 1, 2, 3, 4, 5, 6].map((k) => item({ start: k * 10, end: k * 10 + (k === 3 ? 1.2 : 5), transitionIn: k ? fade : undefined }));
+    const { chunks, joins } = chunkTransitions(items);
+    expect(chunks.map((c) => c.length)).toEqual([3, 3, 1]);
+    expect(chunks[1][0].transitionIn).toBeUndefined();
+    // The join into chunk 2 keeps the overlap capped by the short 1.2 s segment, not the chunk's length.
+    expect(joins).toEqual([undefined, { type: "fade", duration: 0.4 }, { type: "fade", duration: 0.6 }]);
+    const joined = chunks.map((c, i) => ({ start: 0, end: outputDuration(c), transitionIn: joins[i] }));
+    expect(outputDuration(joined)).toBeCloseTo(outputDuration(items), 3);
   });
 
   it("plays music alone when the original sound is off", () => {
