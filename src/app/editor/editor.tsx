@@ -7,7 +7,7 @@ import { applyActions, needsAnalysis } from "@/lib/assistant/apply";
 import { buildSuggestions, type Suggestion } from "@/lib/assistant/suggestions";
 import { MAX_REMEMBERED_BYTES, projectStore } from "@/lib/video/project-store";
 import { PLAN_LIMITS, type PlanId } from "@/lib/plans";
-import type { ClipAnalysis } from "@/lib/video/analysis";
+import { BIN_SECONDS, type ClipAnalysis } from "@/lib/video/analysis";
 import type { MediaInfo } from "@/lib/video/types";
 import type { Range } from "@/lib/video/highlights";
 import { canStreamCopy, computeCanvas, isUntrimmed, needsDownscale } from "@/lib/video/commands";
@@ -16,7 +16,7 @@ import { chooseMethod, exportParts, exportStitched, type ExportMethod, type Expo
 import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/timeline";
 import { buildAss, type Word, wordsForOutput } from "@/lib/video/captions";
 import { cancelTranscription, migrateSpeech, speechKey, transcribeClip } from "@/lib/video/transcribe";
-import { cutsPerMinute, outputPeak } from "@/lib/video/highlights";
+import { cutBins, cutsPerMinute, outputPeak } from "@/lib/video/highlights";
 import { composeWav, type MusicStyle } from "@/lib/audio/music";
 import { findClipsByScene, findViralClips, overallScore, toSentences, type ViralClip } from "@/lib/assistant/viral";
 import { DEFAULT_EXPORT_SETTINGS, ExportSettingsPanel, type ExportSettings } from "./export-settings";
@@ -27,6 +27,8 @@ import { findBeats, type Beat, MOODS } from "@/lib/assistant/mashup";
 import { type EditPlan, type EditVideo, planEdits, planThemedEdit } from "@/lib/assistant/beat-edit";
 import { planTalkEdits } from "@/lib/assistant/talk-edit";
 import { outputDuration } from "@/lib/video/transitions";
+import { cameraPath, type PathKey } from "@/lib/video/reframe";
+import { faceCenters } from "@/lib/video/face-track";
 import type { Playbook } from "@/lib/assistant/playbooks";
 import { pickHooks } from "@/lib/assistant/hooks";
 // Type-only (erased at build time), so the server-only module never reaches the browser.
@@ -829,7 +831,8 @@ export function Editor({ plan }: { plan: PlanId }) {
     const packSettings: ExportSettings = {
       ...settings,
       aspect: "9:16",
-      fit: "blur",
+      // Talking clips keep the speaker in frame, like the big clipping tools; action keeps the whole shot.
+      fit: pb.kind === "talking" && limits.faceTrack ? "track" : "blur",
       captions: pb.captions,
       captionStyle: limits.captionStyles === "all" ? pb.captionStyle : "clean",
       hook: { on: true, text: "" },
@@ -1023,7 +1026,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     const editSettings: ExportSettings = {
       ...settings,
       aspect: "9:16",
-      fit: "blur",
+      fit: (plan.format === "quote" || plan.format === "countdown") && limits.faceTrack ? "track" : "blur",
       captions: plan.captions,
       captionStyle: limits.captionStyles === "all" ? "bold-pop" : "clean",
       hook: { on: true, text: "" },
@@ -1048,6 +1051,34 @@ export function Editor({ plan }: { plan: PlanId }) {
     setHistory((h) => [...h.slice(-19), timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }))]);
     dispatch({ type: "replaceSegments", segments: plan.shots.map(({ clipId, start, end }) => ({ clipId, start, end })) });
     document.querySelector("[data-testid=segment-list]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  /**
+   * Follow the speaker: samples each segment about twice a second (at most 40
+   * frames, from one decode pass), finds the face, and turns the positions into a smooth camera
+   * path. Segments shared between lists are only looked at once. Sources
+   * already as narrow as the canvas are left alone.
+   */
+  async function trackFaces(lists: ExportItem[][]): Promise<ExportItem[][]> {
+    const paths = new Map<string, PathKey[]>();
+    const all = lists.flat();
+    let done = 0;
+    for (const it of all) {
+      const key = `${it.clipId}@${it.start}-${it.end}`;
+      if (paths.has(key) || it.info.width / it.info.height < 0.6) continue;
+      setTask({ label: "Finding the speaker in every shot…", progress: done / all.length });
+      const len = it.end - it.start;
+      // Twice a second for short segments, down to once every 2 s for long ones: one decode pass either way.
+      const rate = Math.min(2, Math.max(0.5, 40 / len));
+      const jpegs = await engine.framesInRange(it.clipId, it.start, it.end, rate, 256);
+      const samples = await faceCenters(jpegs.map((jpeg, k) => ({ t: k / rate, jpeg })));
+      // Shot changes from the analysis, so a switch to another person is cut on the shot change.
+      const a = analyses.current.get(it.clipId);
+      const cuts = a ? cutBins(a).map((b) => b * BIN_SECONDS + BIN_SECONDS / 4 - it.start).filter((c) => c > 0 && c < len) : [];
+      paths.set(key, cameraPath(samples, { cuts }));
+      done++;
+    }
+    return lists.map((list) => list.map((it) => ({ ...it, track: paths.get(`${it.clipId}@${it.start}-${it.end}`) })));
   }
 
   /**
@@ -1129,13 +1160,27 @@ export function Editor({ plan }: { plan: PlanId }) {
         setTask(null);
       }
     }
+    // Follow the speaker (Pro, Studio): find the face in each segment before rendering.
+    let renderItems = items;
+    let renderGroups = run.groups;
+    if (s.fit === "track" && s.aspect !== "original" && limits.faceTrack) {
+      try {
+        [renderItems, ...renderGroups] = await trackFaces([items, ...(run.groups ?? [])]);
+        if (!run.groups) renderGroups = undefined;
+      } catch (err) {
+        if (err instanceof CancelledError) return;
+        setErrors((e) => [...e, "Couldn't load face tracking, so this export is cropped to the center."]);
+      } finally {
+        setTask(null);
+      }
+    }
     setExportState({ status: "running", progress: 0 });
     const style = limits.captionStyles === "all" ? s.captionStyle : "clean";
     const options = {
       maxShortSide: limits.maxShortSide,
       fastCut,
       aspect: s.aspect,
-      fit: s.fit,
+      fit: s.fit === "track" && !limits.faceTrack ? ("crop" as const) : s.fit,
       watermark: limits.watermark,
       logo: limits.brandLogo ? (logo?.bytes ?? null) : null,
       captions:
@@ -1176,7 +1221,7 @@ export function Editor({ plan }: { plan: PlanId }) {
     };
     try {
       const results: ExportResult[] =
-        exportMode === "stitch" ? [await exportStitched(engine, items, options)] : await exportParts(engine, run.groups ?? items, options);
+        exportMode === "stitch" ? [await exportStitched(engine, renderItems, options)] : await exportParts(engine, renderGroups ?? renderItems, options);
       const outputs: ExportOutput[] = results.map((r, i) => {
         const url = URL.createObjectURL(r.blob);
         outputUrls.current.push(url);

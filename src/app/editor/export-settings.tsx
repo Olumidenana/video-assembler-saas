@@ -71,11 +71,17 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         {settings.aspect !== "original" && (
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
             Fill:
-            {(["blur", "crop"] as const).map((f) => (
-              <button key={f} type="button" className={`${chip(settings.fit === f)} py-1`} onClick={() => set({ fit: f })} aria-pressed={settings.fit === f}>
-                {f === "blur" ? "Fit with blurred background" : "Crop to fill"}
-              </button>
-            ))}
+            {(["blur", "crop", "track"] as const).map((f) =>
+              f === "track" && !limits.faceTrack ? (
+                <HardLink key={f} href="/pricing" className={`${chip(false)} flex items-center gap-1 py-1`}>
+                  <LockIcon size={11} /> Follow the speaker
+                </HardLink>
+              ) : (
+                <button key={f} type="button" className={`${chip(settings.fit === f)} py-1`} onClick={() => set({ fit: f })} aria-pressed={settings.fit === f}>
+                  {f === "blur" ? "Fit with blurred background" : f === "crop" ? "Crop to fill" : "Follow the speaker"}
+                </button>
+              ),
+            )}
           </div>
         )}
       </div>

@@ -28,6 +28,8 @@ export interface PlanLimits {
   aiVision: boolean;
   /** Videos one mashup can cut between. */
   mashupVideos: number;
+  /** "Follow the speaker": vertical reframing that keeps the face in frame. */
+  faceTrack: boolean;
 }
 
 /**
@@ -49,6 +51,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     packClips: 1,
     aiVision: false,
     mashupVideos: 2,
+    faceTrack: false,
   },
   pro: {
     label: "Pro",
@@ -63,6 +66,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     packClips: 3,
     aiVision: false,
     mashupVideos: 5,
+    faceTrack: true,
   },
   studio: {
     label: "Studio",
@@ -77,6 +81,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     packClips: 8,
     aiVision: true,
     mashupVideos: 12,
+    faceTrack: true,
   },
 };
 

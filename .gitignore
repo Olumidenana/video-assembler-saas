@@ -49,3 +49,4 @@ next-env.d.ts
 # ONNX Runtime wasm (copied from node_modules on install/build)
 /public/vendor/ort
 /public/vendor/transformers
+/public/vendor/mediapipe

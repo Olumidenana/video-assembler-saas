@@ -48,6 +48,8 @@ export interface ExportItem {
   speed?: number;
   /** Beat-edit effects at the start of the segment, on the cut. */
   fx?: SegmentFx;
+  /** "Follow the speaker": where the crop is centered over time (segment seconds, 0..1 of the width). */
+  track?: { t: number; x: number }[];
 }
 
 export interface SegmentFx {

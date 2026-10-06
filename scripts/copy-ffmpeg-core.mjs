@@ -29,6 +29,14 @@ const targets = [
       "ort-wasm-simd-threaded.wasm",
     ],
   },
+  // MediaPipe face detection ("Follow the speaker" reframing). The model itself
+  // is small and committed in public/models.
+  {
+    pkg: "@mediapipe/tasks-vision",
+    dist: "wasm",
+    dest: "public/vendor/mediapipe",
+    files: ["vision_wasm_internal.js", "vision_wasm_internal.wasm", "vision_wasm_nosimd_internal.js", "vision_wasm_nosimd_internal.wasm"],
+  },
 ];
 
 for (const { pkg, out, files, dist = "dist/esm", dest: destDir } of targets) {

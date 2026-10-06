@@ -185,7 +185,9 @@ are built from a few whole moments. Auto picks Scenes for videos with 6+ cuts a 
 ## Clip Pack and AI Vision
 
 **Clip Pack** (`src/app/editor/clip-pack.tsx`, `makeClipPack` in the editor) is the one-button
-workflow: pick who the clips are for and a number of clips (Free 1, Pro 3, Studio 8). It finds the
+workflow: pick who the clips are for and a number of clips (Free 1, Pro 3, Studio 8). On Pro and
+Studio, clips from videos with speech are picked by AI reading the whole transcript (as in Viral
+clips, where this is now automatic too). It finds the
 moments, exports each as a finished 9:16 post and adds `post-kit.txt` with titles, captions and
 hashtags.
 
@@ -261,6 +263,17 @@ deadlocks on transition graphs with more than three video inputs, longer runs ar
 segments at a time (high-quality intermediates) and then joined with the transitions between them.
 `outputStarts`/`outputDuration` map source time to output time for captions, the music drop and the
 progress bar.
+
+## Follow the speaker (`src/lib/video/reframe.ts`, `face-track.ts`)
+
+Vertical reframing that keeps the person talking in frame (Pro and Studio; the default for talking
+clips in Clip Pack, quote edits and countdowns). Each segment is decoded once at 0.5-2 frames a second
+(`engine.framesInRange`), MediaPipe's face detector (self-hosted in `public/vendor/mediapipe`, model in
+`public/models`) finds the main face (the largest, or the one nearest the last pick; small faces in
+wide shots are looked for again in overlapping halves), and `cameraPath` turns the positions into
+camera moves: it holds still through small movements and glitches, glides for small shifts, and cuts
+to a different person on the shot change. `cropXExpression` turns the path into the crop FFmpeg
+follows. Nothing is uploaded.
 
 ## Music (`src/lib/audio/music.ts`)
 

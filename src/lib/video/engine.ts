@@ -340,6 +340,29 @@ export class VideoEngine {
     return frames;
   }
 
+  /**
+   * Frames across a range at a steady rate, from one decode pass (much faster
+   * than seeking for each frame when they're close together). Frame k is at
+   * start + k / fps.
+   */
+  async framesInRange(clipId: string, start: number, end: number, fps: number, width = 256): Promise<Uint8Array[]> {
+    const count = Math.max(1, Math.floor((end - start) * fps));
+    const outputs = Array.from({ length: count }, (_, k) => `/range-${String(k + 1).padStart(4, "0")}.jpg`);
+    const args = [
+      "-threads", "2", "-ss", Math.max(0, start).toFixed(3), "-t", (end - start).toFixed(3), "-i", clipPath(clipId),
+      "-map", "0:v:0", "-vf", `fps=${fps},scale=${width}:-2`, "-frames:v", String(count), "-q:v", "5",
+      "-threads", "1", "/range-%04d.jpg",
+    ];
+    return this.execute([clipId], args, { totalDuration: end - start }, {}, outputs, async (ffmpeg) => {
+      const out: Uint8Array[] = [];
+      for (const path of outputs) {
+        const f = (await ffmpeg.readFile(path).catch(() => null)) as Uint8Array | null;
+        if (f) out.push(f);
+      }
+      return out;
+    });
+  }
+
   /** Decodes part of a clip's audio as 16 kHz mono float samples (speech recognition input). */
   async extractAudio(clipId: string, start: number, duration: number): Promise<Float32Array> {
     const out = "/speech.f32";

@@ -1,4 +1,5 @@
 import { hasTransitions, outputDuration, outputStarts, overlaps, playLength } from "./transitions";
+import { cropXExpression } from "./reframe";
 import type { ExportItem, MediaInfo, SegmentFx } from "./types";
 
 /** Where a clip's file is mounted (read-only WORKERFS) inside the FFmpeg virtual FS. */
@@ -31,7 +32,8 @@ const secs = (n: number) => n.toFixed(3);
 
 export type Aspect = "original" | "9:16" | "1:1" | "16:9";
 /** How a source fills a canvas of a different shape. */
-export type Fit = "crop" | "blur";
+/** How a different-shaped source fills the canvas: crop the middle, fit over a blurred copy, or crop following the speaker's face. */
+export type Fit = "crop" | "blur" | "track";
 
 const ASPECTS: Record<Exclude<Aspect, "original">, [number, number]> = { "9:16": [9, 16], "1:1": [1, 1], "16:9": [16, 9] };
 
@@ -169,6 +171,8 @@ interface FitExtras {
   fx?: SegmentFx;
   /** Exact frame count to keep (beat-synced edits). */
   frames?: number;
+  /** Camera path for fit "track". */
+  track?: { t: number; x: number }[];
 }
 
 /** The per-segment effects of a beat edit, applied after the segment is on the canvas. */
@@ -204,7 +208,14 @@ function fitFilter(input: string, out: string, W: number, H: number, fps: number
   const speed = extras.speed && extras.speed !== 1 ? `setpts=(PTS-STARTPTS)/${extras.speed},` : "";
   const trim = extras.frames ? `,trim=end_frame=${extras.frames}` : "";
   const tail = `setsar=1,${speed}fps=${fps},format=yuv420p,setpts=PTS-STARTPTS${effectFilters(W, H, fps, extras)}${trim}[${out}]`;
-  if (fit === "crop") {
+  if (fit === "track" && extras.track?.length) {
+    // Crop a canvas-shaped window from the full height, sliding along the speaker's path, then scale it up.
+    return (
+      `${input}crop=w='trunc(min(iw,ih*${W}/${H})/2)*2':h='trunc(ih/2)*2':x='${cropXExpression(extras.track)}':y=0,` +
+      `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},${tail}`
+    );
+  }
+  if (fit === "crop" || fit === "track") {
     return `${input}scale=${W}:${H}:force_original_aspect_ratio=increase:force_divisible_by=2,crop=${W}:${H},${tail}`;
   }
   if (fit === "blur") {
@@ -254,7 +265,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
       "-ss", secs(item.start), "-t", secs(frames ? source + 0.2 : source), "-i", clipPath(item.clipId),
     );
 
-    filters.push(fitFilter(`[${i}:v:0]`, `v${i}`, W, H, fps, overlays.fit ?? "letterbox", { flashIn: item.flashIn, speed, fx: item.fx, frames }));
+    filters.push(fitFilter(`[${i}:v:0]`, `v${i}`, W, H, fps, overlays.fit ?? "letterbox", { flashIn: item.flashIn, speed, fx: item.fx, frames, track: item.track }));
     filters.push(
       item.info.audioCodec
         ? `[${i}:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
