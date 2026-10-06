@@ -13,7 +13,7 @@ const ERRORS: Record<string, string> = {
 };
 
 export default async function AccountPage({ searchParams }: PageProps<"/account">) {
-  const [{ user, subscription, plan }, params] = await Promise.all([getViewer(), searchParams]);
+  const [{ user, subscription, plan, complimentary }, params] = await Promise.all([getViewer(), searchParams]);
   if (!user) redirect("/login?next=/account");
 
   const pro = plan !== "free";
@@ -64,7 +64,8 @@ export default async function AccountPage({ searchParams }: PageProps<"/account"
               : "No watermark, unlimited stitching and original-quality exports."
             : `Up to ${PLAN_LIMITS.free.maxStitchClips} videos per stitch, ${PLAN_LIMITS.free.maxShortSide}p exports with a watermark.`}
         </p>
-        {pro && renewal && <p className="text-sm text-muted">{renewal}</p>}
+        {complimentary && <p className="text-sm text-muted">Complimentary access: no payment needed, nothing renews.</p>}
+        {pro && !complimentary && renewal && <p className="text-sm text-muted">{renewal}</p>}
 
         <div className="flex flex-wrap gap-3">
           {plan === "pro" && (

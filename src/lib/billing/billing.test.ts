@@ -136,3 +136,15 @@ describe("formatMoney", () => {
     expect(formatMoney(250050, "NGN")).toMatch(/2,500\.50$/);
   });
 });
+
+describe("isComplimentary", () => {
+  it("matches listed emails, ignoring case and spaces", async () => {
+    const { isComplimentary } = await import("./status");
+    const list = " Owner@Example.com, tester@example.com ";
+    expect(isComplimentary("owner@example.com", list)).toBe(true);
+    expect(isComplimentary("TESTER@example.com", list)).toBe(true);
+    expect(isComplimentary("someone@example.com", list)).toBe(false);
+    expect(isComplimentary("owner@example.com", undefined)).toBe(false);
+    expect(isComplimentary(null, list)).toBe(false);
+  });
+});

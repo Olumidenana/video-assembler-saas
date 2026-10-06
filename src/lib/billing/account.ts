@@ -15,6 +15,7 @@ import {
 } from "./paystack";
 import {
   intervalDays,
+  isComplimentary,
   pickSubscription,
   planForSubscription,
   type SubscriptionRow,
@@ -25,6 +26,8 @@ export interface Viewer {
   user: { id: string; email: string; name: string | null } | null;
   subscription: SubscriptionRow | null;
   plan: PlanId;
+  /** Studio granted without payment (COMPLIMENTARY_STUDIO_EMAILS). */
+  complimentary?: boolean;
 }
 
 const SIGNED_OUT: Viewer = { user: null, subscription: null, plan: "free" };
@@ -45,10 +48,13 @@ export const getViewer = cache(async (): Promise<Viewer> => {
       .maybeSingle<SubscriptionRow>();
 
     const meta = data.user.user_metadata as { full_name?: string; name?: string } | undefined;
+    // Only a verified sign-in email counts (Google always verifies it).
+    const complimentary = Boolean(data.user.email_confirmed_at) && isComplimentary(data.user.email);
     return {
       user: { id: data.user.id, email: data.user.email ?? "", name: meta?.full_name ?? meta?.name ?? null },
       subscription: subscription ?? null,
-      plan: planForSubscription(subscription ?? null, tierForPlanCode),
+      plan: complimentary ? "studio" : planForSubscription(subscription ?? null, tierForPlanCode),
+      complimentary,
     };
   } catch (err) {
     unstable_rethrow(err); // Next.js uses errors to detect dynamic pages; those aren't failures.

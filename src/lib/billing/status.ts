@@ -121,3 +121,14 @@ export function safeNextPath(next: string | null | undefined, fallback = "/edito
   if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return fallback;
   return next;
 }
+
+/**
+ * Emails given Studio for free (the owner, testers, partners), from the
+ * COMPLIMENTARY_STUDIO_EMAILS environment variable: comma-separated,
+ * case-insensitive. Server-only, so the list is never public.
+ */
+export function isComplimentary(email: string | null | undefined, list = process.env.COMPLIMENTARY_STUDIO_EMAILS): boolean {
+  if (!email || !list) return false;
+  const wanted = email.trim().toLowerCase();
+  return list.split(",").some((e) => e.trim().toLowerCase() === wanted);
+}

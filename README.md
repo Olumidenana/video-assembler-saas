@@ -100,6 +100,8 @@ Paystack ──webhook──▶ POST /api/paystack/webhook ─▶ verify signatu
 - **Paid =** status `active`, `non-renewing` (cancelled but paid up) or `attention` (renewal retrying),
   and `current_period_end` in the future, plus a 24-hour grace period (`status.ts`).
 - What each plan unlocks lives in `src/lib/plans.ts` (`PLAN_LIMITS`).
+- **Complimentary Studio:** emails listed in `COMPLIMENTARY_STUDIO_EMAILS` (comma-separated, server-only)
+  get Studio without paying, once signed in with that verified email. Useful for the owner and testers.
 - The prices shown on `/pricing` are read from the Paystack plans, so change it in Paystack, not in code.
 - The Paystack popup only works on non-isolated pages. It lives on `/pricing` and returns to the
   editor with a full page load.
