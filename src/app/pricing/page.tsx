@@ -26,6 +26,8 @@ const PRO = [
   `Export the top ${PLAN_LIMITS.pro.viralClipExports} viral clips per video`,
   `Clip Pack: ${PLAN_LIMITS.pro.packClips} finished posts in one click`,
   `Edits & mashups of up to ${PLAN_LIMITS.pro.mashupVideos} videos`,
+  "AI picks the best moments from the whole transcript",
+  "Follow the speaker: vertical crops that keep the face in frame",
   "Everything in Free",
 ];
 
@@ -34,6 +36,7 @@ const STUDIO = [
   "AI Vision: watches your clips, picks the best & writes the hooks",
   `AI Theme Match: edits of up to ${PLAN_LIMITS.studio.mashupVideos} videos built around a story`,
   `Clip Pack: ${PLAN_LIMITS.studio.packClips} posts at once, shared straight to your apps`,
+  "Post and schedule straight to YouTube Shorts",
   "Viral score: hook, curiosity, emotion & payoff",
   "Post kit: titles, captions & hashtags per clip",
   "All caption styles (word-by-word, bold pop, karaoke)",

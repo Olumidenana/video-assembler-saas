@@ -30,6 +30,8 @@ export interface PlanLimits {
   mashupVideos: number;
   /** "Follow the speaker": vertical reframing that keeps the face in frame. */
   faceTrack: boolean;
+  /** Post and schedule straight to YouTube from the editor. */
+  directPost: boolean;
 }
 
 /**
@@ -52,6 +54,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     aiVision: false,
     mashupVideos: 2,
     faceTrack: false,
+    directPost: false,
   },
   pro: {
     label: "Pro",
@@ -67,6 +70,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     aiVision: false,
     mashupVideos: 5,
     faceTrack: true,
+    directPost: false,
   },
   studio: {
     label: "Studio",
@@ -82,6 +86,7 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
     aiVision: true,
     mashupVideos: 12,
     faceTrack: true,
+    directPost: true,
   },
 };
 

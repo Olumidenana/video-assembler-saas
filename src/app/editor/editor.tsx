@@ -36,6 +36,7 @@ import type { ThemeMashup, VisionVerdict } from "@/lib/assistant/claude";
 import { TaskBanner } from "./task-banner";
 import { WorkspaceNav } from "./workspace-nav";
 import { ShareButton } from "./share-button";
+import { PostPlanner, useYouTube, YouTubeButton } from "./post-tools";
 import { forgetThumbnails } from "./thumbnails";
 import { DEFAULT_MUSIC, type OwnTrack } from "./music-controls";
 import { VIRAL_RANGES, ViralPanel, type VideoKind, type ViralRange } from "./viral-panel";
@@ -1784,6 +1785,8 @@ function EngineBadge({ status, mode }: { status: EngineStatus; mode: VideoEngine
 
 function Outputs({ outputs, canShare }: { outputs: ExportOutput[]; canShare: boolean }) {
   const single = outputs.length === 1;
+  const [youtube, refreshYouTube] = useYouTube();
+  const videos = outputs.filter((o) => o.name.endsWith(".mp4"));
   return (
     <div className="flex flex-col gap-4 border-t border-line pt-5" data-testid="outputs">
       <p className="notice notice-ok">
@@ -1800,10 +1803,12 @@ function Outputs({ outputs, canShare }: { outputs: ExportOutput[]; canShare: boo
                 <DownloadIcon size={15} /> Download {o.name}
               </a>
               {o.name.endsWith(".mp4") && <ShareButton url={o.url} name={o.name} text={o.shareText} allowed={canShare} />}
+              {o.name.endsWith(".mp4") && <YouTubeButton file={o} status={youtube} refresh={refreshYouTube} />}
             </span>
           </li>
         ))}
       </ul>
+      {videos.length > 0 && <PostPlanner files={videos} />}
       {!single && (
         <button
           type="button"

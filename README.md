@@ -275,6 +275,23 @@ camera moves: it holds still through small movements and glitches, glides for sm
 to a different person on the shot change. `cropXExpression` turns the path into the crop FFmpeg
 follows. Nothing is uploaded.
 
+## Posting (`src/lib/social`, `src/app/editor/post-tools.tsx`)
+
+- **Post to YouTube (Studio)**: the creator connects their channel once in a popup
+  (`/api/youtube/connect` -> Google -> `/api/youtube/callback`, which keeps only the refresh token in
+  `social_connections`, migration 0004). Each finished clip can be posted now or scheduled: the
+  browser gets a short-lived token (`/api/youtube/token`) and uploads straight from the device to
+  YouTube (resumable upload); a scheduled post goes up private with `publishAt`, and YouTube makes it
+  public then. Needs `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (see `.env.example`). Until Google
+  verifies the app for the youtube.upload scope, only accounts added as test users can connect, and
+  the default API quota allows about 6 uploads a day across the whole site (1,600 units each of
+  10,000): request a quota increase before launch.
+- **Posting plan (all plans)**: spreads the clips over the coming days at lunch and evening times and
+  downloads an `.ics` calendar with a reminder and the caption for each post.
+- TikTok and Instagram direct posting need their platform's app review (TikTok Content Posting API
+  audit; Instagram Graph API with a Business account and Meta app review), so for now clips go out
+  through the share sheet with the caption copied.
+
 ## Music (`src/lib/audio/music.ts`)
 
 Original beats composed in the browser for each export (Phonk, Hype trap, Afro/Amapiano,
