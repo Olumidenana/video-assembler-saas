@@ -10,7 +10,7 @@ import { PLAN_LIMITS, type PlanId } from "@/lib/plans";
 import { BIN_SECONDS, type ClipAnalysis } from "@/lib/video/analysis";
 import type { MediaInfo } from "@/lib/video/types";
 import type { Range } from "@/lib/video/highlights";
-import { canStreamCopy, computeCanvas, isUntrimmed, needsDownscale } from "@/lib/video/commands";
+import { type Aspect, canStreamCopy, computeCanvas, isUntrimmed, needsDownscale } from "@/lib/video/commands";
 import { CancelledError, EngineCrashedError, VideoEngine } from "@/lib/video/engine";
 import { chooseMethod, exportParts, exportStitched, type ExportMethod, type ExportResult } from "@/lib/video/export";
 import { initialTimeline, timelineReducer, toExportItems } from "@/lib/video/timeline";
@@ -69,6 +69,8 @@ interface ExportOutput {
   method: ExportMethod;
   /** Caption and hashtags to post with it (Clip Pack parts). */
   shareText?: string;
+  /** The shape it was exported in, so the preview has the right size before the video loads. */
+  aspect?: Aspect;
 }
 
 /** Identifies a clip range across renders (hooks, drops). */
@@ -1226,7 +1228,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       const outputs: ExportOutput[] = results.map((r, i) => {
         const url = URL.createObjectURL(r.blob);
         outputUrls.current.push(url);
-        return { url, name: r.name, size: r.blob.size, method: r.method, shareText: run.shareTexts?.[i] };
+        return { url, name: r.name, size: r.blob.size, method: r.method, shareText: run.shareTexts?.[i], aspect: s.aspect };
       });
       if (run.postKit) {
         const kit = new Blob([run.postKit], { type: "text/plain" });
@@ -1274,6 +1276,11 @@ export function Editor({ plan }: { plan: PlanId }) {
     // Warm the engine back up so the next action doesn't wait for a reload.
     void engine.load().catch(() => setEngineStatus("error"));
   }
+
+  // Whatever started it (Export, Clip Pack, an edit card), show the finished video when it's ready.
+  useEffect(() => {
+    if (exportState.status === "done") document.querySelector("[data-testid=outputs]")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [exportState.status]);
 
   const { clips, segments, selectedId } = timeline;
   const selected = segments.find((s) => s.id === selectedId) ?? null;
@@ -1506,6 +1513,8 @@ export function Editor({ plan }: { plan: PlanId }) {
                     key={selected.clipId}
                     clip={clips[selected.clipId]}
                     segment={selected}
+                    aspect={settings.aspect}
+                    fit={settings.fit}
                     onSetStart={(start) => dispatch({ type: "setRange", id: selected.id, start })}
                     onSetEnd={(end) => dispatch({ type: "setRange", id: selected.id, end })}
                     onSplit={(at) => dispatch({ type: "split", id: selected.id, at })}
@@ -1645,7 +1654,7 @@ export function Editor({ plan }: { plan: PlanId }) {
                 {exportState.message}
               </p>
             )}
-            {exportState.status === "done" && <Outputs outputs={exportState.outputs} canShare={plan === "studio"} />}
+            {exportState.status === "done" && <Outputs outputs={exportState.outputs} canShare />}
           </section>
         )}
 
@@ -1783,6 +1792,14 @@ function EngineBadge({ status, mode }: { status: EngineStatus; mode: VideoEngine
   );
 }
 
+/** Sizes a finished video's player to its real shape: a 9:16 clip is a tall, phone-sized player. */
+function previewShape(aspect: Aspect | undefined, single: boolean): string {
+  if (aspect === "9:16") return single ? "h-[min(70vh,640px)] max-w-full aspect-[9/16]" : "w-full aspect-[9/16]";
+  if (aspect === "1:1") return single ? "h-[min(60vh,520px)] max-w-full aspect-square" : "w-full aspect-square";
+  if (aspect === "16:9") return "w-full aspect-video";
+  return single ? "max-h-[70vh] max-w-full" : "w-full";
+}
+
 function Outputs({ outputs, canShare }: { outputs: ExportOutput[]; canShare: boolean }) {
   const single = outputs.length === 1;
   const [youtube, refreshYouTube] = useYouTube();
@@ -1792,7 +1809,22 @@ function Outputs({ outputs, canShare }: { outputs: ExportOutput[]; canShare: boo
       <p className="notice notice-ok">
         {single ? "Your video is ready." : `${outputs.length} files are ready.`} Download before leaving this page.
       </p>
-      {single && <video src={outputs[0].url} controls playsInline className="aspect-video w-full rounded-xl bg-black" />}
+      {/* Each video at its real shape (a 9:16 clip as a tall phone-sized player, not a strip in a wide box). */}
+      {videos.length > 0 && (
+        <div className={single ? "flex justify-center" : "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"} data-testid="output-previews">
+          {videos.map((o) => (
+            <video
+              key={o.url}
+              src={o.url}
+              controls
+              playsInline
+              preload="metadata"
+              className={`rounded-xl bg-black object-contain ${previewShape(o.aspect, single)}`}
+              data-name={o.name}
+            />
+          ))}
+        </div>
+      )}
       <ul className="flex flex-col gap-2">
         {outputs.map((o) => (
           <li key={o.url} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-sm">

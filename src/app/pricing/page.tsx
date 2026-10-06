@@ -16,6 +16,7 @@ const FREE = [
   "Find viral clips and export the top one",
   `Beat-synced edits & mashups of ${PLAN_LIMITS.free.mashupVideos} videos`,
   `Exports up to ${PLAN_LIMITS.free.maxShortSide}p, with a small watermark`,
+  "Share straight to TikTok, Reels, Shorts & WhatsApp",
 ];
 
 const PRO = [
@@ -35,7 +36,7 @@ const STUDIO = [
   "Unlimited viral clips from every video",
   "AI Vision: watches your clips, picks the best & writes the hooks",
   `AI Theme Match: edits of up to ${PLAN_LIMITS.studio.mashupVideos} videos built around a story`,
-  `Clip Pack: ${PLAN_LIMITS.studio.packClips} posts at once, shared straight to your apps`,
+  `Clip Pack: ${PLAN_LIMITS.studio.packClips} finished posts at once`,
   "Post and schedule straight to YouTube Shorts",
   "Viral score: hook, curiosity, emotion & payoff",
   "Post kit: titles, captions & hashtags per clip",

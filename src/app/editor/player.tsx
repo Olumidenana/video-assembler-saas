@@ -3,12 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { ScissorsIcon, SplitIcon } from "@/components/icons";
 import { MIN_SEGMENT_SECONDS } from "@/lib/video/commands";
+import type { Aspect, Fit } from "@/lib/video/commands";
 import type { Clip, Segment } from "@/lib/video/types";
 import { formatTime } from "./format";
 
 interface PlayerProps {
   clip: Clip;
   segment: Segment;
+  /** The export's shape and fill, so the preview shows what the video will look like. */
+  aspect?: Aspect;
+  fit?: Fit;
   onSetStart: (t: number) => void;
   onSetEnd: (t: number) => void;
   onSplit: (t: number) => void;
@@ -16,8 +20,12 @@ interface PlayerProps {
 }
 
 /** Previews the selected segment and sets trim/split points from the playhead. */
-export function Player({ clip, segment, onSetStart, onSetEnd, onSplit, onSplitEvery }: PlayerProps) {
+export function Player({ clip, segment, aspect = "original", fit = "blur", onSetStart, onSetEnd, onSplit, onSplitEvery }: PlayerProps) {
   const ref = useRef<HTMLVideoElement>(null);
+  const [framed, setFramed] = useState(true);
+  const shaped = aspect !== "original" && framed;
+  // A definite height lets the width follow the shape (a max-height alone wouldn't narrow it).
+  const box = aspect === "9:16" ? "mx-auto h-[min(70vh,640px)] max-w-full aspect-[9/16]" : aspect === "1:1" ? "mx-auto h-[min(60vh,520px)] max-w-full aspect-square" : "aspect-video w-full";
   const [time, setTime] = useState(segment.start);
   const [partSeconds, setPartSeconds] = useState(30);
   const [previewFailed, setPreviewFailed] = useState(false);
@@ -38,12 +46,28 @@ export function Player({ clip, segment, onSetStart, onSetEnd, onSplit, onSplitEv
 
   return (
     <div className="card flex flex-col gap-4 p-3 sm:p-4">
+      {aspect !== "original" && (
+        <div className="flex items-center justify-between gap-2 px-1 text-xs text-muted">
+          <span>
+            {shaped ? `Previewing as ${aspect}` : "Full frame"} ·{" "}
+            {fit === "blur" ? "fit over a blurred background" : fit === "track" ? "following the speaker (centered here)" : "cropped to fill"}
+          </span>
+          <button type="button" className="text-brand hover:underline" onClick={() => setFramed((f) => !f)}>
+            {shaped ? "Show full frame" : `Show as ${aspect}`}
+          </button>
+        </div>
+      )}
+      <div className={`relative overflow-hidden rounded-xl bg-black ${shaped ? box : "aspect-video w-full"}`} data-testid="player-frame" data-aspect={shaped ? aspect : "original"}>
+        {shaped && fit === "blur" && (
+          // The blurred background the export puts behind the picture (a still: cheap, close enough to judge).
+          <div className="absolute inset-0 scale-110 bg-cover bg-center opacity-60 blur-2xl" style={{ backgroundImage: "linear-gradient(135deg, rgb(139 123 255 / 0.25), rgb(255 122 198 / 0.15))" }} />
+        )}
       <video
         ref={ref}
         src={clip.url}
         controls
         playsInline
-        className="aspect-video w-full rounded-xl bg-black"
+        className={`relative size-full ${shaped && fit !== "blur" ? "object-cover" : "object-contain"}`}
         onError={() => setPreviewFailed(true)}
         onTimeUpdate={(e) => {
           const video = e.currentTarget;
@@ -61,6 +85,7 @@ export function Player({ clip, segment, onSetStart, onSetEnd, onSplit, onSplitEv
           }
         }}
       />
+      </div>
 
       {previewFailed && (
         <p className="notice notice-warn" data-testid="preview-failed">

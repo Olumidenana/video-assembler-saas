@@ -11,7 +11,7 @@ const UPLOAD_PAGES = [
 ];
 
 /**
- * Share a finished clip (Studio). On phones the system share sheet hands the
+ * Share a finished clip (every plan; Free exports carry the watermark). On phones the system share sheet hands the
  * MP4 straight to TikTok, Instagram, WhatsApp or YouTube; their own editors
  * take it from there. The caption is copied first so it can be pasted in, since
  * those apps often ignore shared text. Desktops get the caption copied and
