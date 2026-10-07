@@ -196,6 +196,8 @@ function effectFilters(W: number, H: number, fps: number, { flashIn, fx }: FitEx
       `scale=${sw}:${sh},crop=${W}:${H}:x='(iw-ow)/2*(1+sin(t*55)*max(0,1-t/0.35))':y='(ih-oh)/2*(1+cos(t*47)*max(0,1-t/0.35))'`,
     );
   }
+  if (fx?.dim) out.push("drawbox=x=0:y=0:w=iw:h=ih:color=black@0.45:t=fill");
+  if (fx?.blackout) out.push("drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill");
   if (fx?.flash) out.push(`fade=t=in:st=0:d=${secs(fx.flash)}:color=white`);
   if (fx?.dip) out.push(`fade=t=in:st=0:d=${secs(fx.dip)}:color=black`);
   // zoompan and scale+crop change the sample aspect ratio, which concat rejects.
@@ -269,7 +271,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     filters.push(
       item.info.audioCodec
         ? `[${i}:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
-            `${speed !== 1 ? `atempo=${speed},` : ""}apad,atrim=end=${duration},asetpts=PTS-STARTPTS[a${i}]`
+            `${speed !== 1 ? `atempo=${speed},` : ""}${item.fx?.blackout ? "volume=0," : ""}apad,atrim=end=${duration},asetpts=PTS-STARTPTS[a${i}]`
         : `anullsrc=r=48000:cl=stereo,atrim=end=${duration},asetpts=PTS-STARTPTS[a${i}]`,
     );
     pairs.push(`[v${i}][a${i}]`);

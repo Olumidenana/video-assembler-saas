@@ -241,6 +241,11 @@ describe("command builders", () => {
     expect(graph).toContain("crop=720:1280:x='(iw-ow)/2*(1+sin(t*55)*max(0,1-t/0.35))'");
     expect(graph).toContain("setsar=1,setpts=(PTS-STARTPTS)/0.5,fps=30");
     expect(graph).toContain("atempo=0.5,apad,atrim=end=1.833");
+    const dark = buildReencodeArgs([item({ fx: { dim: true } }), item({ clipId: "b", fx: { blackout: true } })], { width: 720, height: 1280, fps: 30 }, "/out.mp4");
+    const gd = dark[dark.indexOf("-filter_complex") + 1];
+    expect(gd).toContain("drawbox=x=0:y=0:w=iw:h=ih:color=black@0.45:t=fill");
+    expect(gd).toContain("drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill");
+    expect(gd).toMatch(/\[1:a:0\][^;]*volume=0,apad/);
     const zoomed = buildReencodeArgs([item({ fx: { zoom: 1.22 } })], { width: 720, height: 1280, fps: 30 }, "/out.mp4");
     expect(zoomed[zoomed.indexOf("-filter_complex") + 1]).toContain("scale=878:1562,crop=720:1280:(iw-ow)/2:(ih-oh)*0.35,setsar=1");
     // A chunk that starts later on the grid rounds against the same grid.

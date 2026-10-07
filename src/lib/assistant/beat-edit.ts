@@ -19,10 +19,10 @@
  */
 import { MUSIC_STYLES, type MusicStyle } from "@/lib/audio/music";
 import { BIN_SECONDS, type ClipAnalysis } from "@/lib/video/analysis";
-import { findMoments, rawScores, themeSongRanges } from "@/lib/video/highlights";
+import { cutsPerMinute, findMoments, rawScores, themeSongRanges } from "@/lib/video/highlights";
 import type { SegmentFx } from "@/lib/video/types";
 
-export type EditFormat = "hype" | "versus" | "feels" | "quote" | "countdown";
+export type EditFormat = "hype" | "versus" | "feels" | "trailer" | "quote" | "countdown";
 
 export interface Shot {
   clipId: string;
@@ -31,7 +31,7 @@ export interface Shot {
   end: number;
   speed?: number;
   fx?: SegmentFx;
-  role: "intro" | "build" | "drop" | "outro" | "clip";
+  role: "intro" | "build" | "pause" | "drop" | "outro" | "clip";
   /** Beats it lasts in the edit (fractional for talking clips, which follow the speech). */
   beats: number;
 }
@@ -61,8 +61,10 @@ export interface EditPlan {
   captions: boolean;
   /** Cut on exact frames of the beat grid. */
   exact: boolean;
-  /** Big on-screen labels in output time ("#3", "#2", "#1"). */
-  labels?: { text: string; start: number; end: number }[];
+  /** Big on-screen labels in output time: countdown numbers, or trailer title cards. */
+  labels?: { text: string; start: number; end: number; style?: "count" | "card" }[];
+  /** Seconds of silence in the music before the drop (the trailer's pause). */
+  pause?: number;
 }
 
 /** The beat leads, the original sound sits underneath for the impacts. */
@@ -83,9 +85,12 @@ interface Hit {
 }
 
 /** Beats per shot, by section. Hype: long intro shots, cuts speeding up, a cut on every beat after the drop. */
-const TEMPLATES: Record<"hype" | "feels", { intro: number[]; build: number[]; drop: number[]; outro: number }> = {
+const TEMPLATES: Record<"hype" | "feels" | "trailer", { intro: number[]; build: number[]; pause?: number; drop: number[]; outro: number }> = {
   hype: { intro: [4, 4], build: [2, 2, 1, 1, 1, 1], drop: [4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], outro: 4 },
   feels: { intro: [4, 4], build: [4, 2, 2], drop: [4, 4, 4, 4], outro: 4 },
+  // A movie trailer: a cold open and three setup shots under title cards, cuts that speed up,
+  // one beat of black silence, then the climax on the drop and a final stinger.
+  trailer: { intro: [4, 4, 4, 4], build: [2, 2, 1, 1, 1], pause: 1, drop: [4, 1, 1, 1, 1, 1, 1, 1, 1], outro: 4 },
 };
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -148,7 +153,8 @@ function layout(
 ): { shots: Shot[]; dropAt: number; length: number; bpm: number } | null {
   const bpm = MUSIC_STYLES.find((m) => m.id === music)!.bpm;
   const beat = 60 / bpm;
-  const t = TEMPLATES[format === "feels" ? "feels" : "hype"];
+  const t = TEMPLATES[format === "feels" ? "feels" : format === "trailer" ? "trailer" : "hype"];
+  const trailer = format === "trailer";
   const used = new Used();
   // The video with the strongest moment leads (it gets the drop); versus keeps the order it was given.
   const top = (id: string) => (format === "feels" ? calm : pools).get(id)?.[0]?.strength ?? 0;
@@ -204,13 +210,21 @@ function layout(
   for (const [i, beats] of t.intro.entries()) {
     const len = beats * beat;
     const w = cut(calm, len, (l) => l / 2) ?? cut(pools, len, (l) => l * 0.8);
-    if (!add("intro", beats, w, i === 0 ? { fx: { dip: 0.3 } } : { fx: feels ? { dip: 0.25 } : { flash: 0.08 } })) return null;
+    // Trailer setup shots are dimmed under their title cards and fade in, slow and deliberate.
+    const fx = trailer ? (i === 0 ? { dip: 0.5 } : { dip: 0.3, dim: true }) : i === 0 ? { dip: 0.3 } : feels ? { dip: 0.25 } : { flash: 0.08 };
+    if (!add("intro", beats, w, { fx })) return null;
   }
   // Build: wind-ups, the impact just after each shot ends (the cut leaves you wanting it).
   for (const [i, beats] of t.build.entries()) {
     const len = beats * beat;
     const w = cut(feels ? calm : pools, len, (l) => l + 0.15) ?? cut(feels ? calm : pools, len, (l) => l / 2);
-    if (!add("build", beats, w, feels ? { fx: { dip: 0.2 } } : i === 0 ? { fx: { flash: 0.1 } } : {})) return null;
+    // Trailers hit every build cut with a flash; edits only the first.
+    if (!add("build", beats, w, feels ? { fx: { dip: 0.2 } } : i === 0 || trailer ? { fx: { flash: 0.1 } } : {})) return null;
+  }
+  // The pause: one beat of black and silence. The brain braces for the hit that comes next.
+  if (t.pause) {
+    const w = cut(calm, t.pause * beat, (l) => l / 2) ?? cut(pools, t.pause * beat, (l) => l + 1);
+    if (!add("pause", t.pause, w, { fx: { blackout: true } })) return null;
   }
   // Drop: the big hit on the drop, then a cut on every beat with the impact right after the cut.
   add("drop", t.drop[0], big, feels ? { fx: { flash: 0.2 } } : { fx: { flash: 0.15, punch: true, shake: true } });
@@ -249,9 +263,42 @@ function layout(
   if (outro) add("outro", t.outro, outro, { speed: 0.5, fx: feels ? { dip: 0.3 } : { flash: 0.2 } });
   else return null;
 
-  const dropAt = r3([...t.intro, ...t.build].reduce((s, b) => s + b, 0) * beat);
+  const dropAt = r3(([...t.intro, ...t.build].reduce((s, b) => s + b, 0) + (t.pause ?? 0)) * beat);
   const length = r3(shots.reduce((s, x) => s + x.beats, 0) * beat);
   return { shots, dropAt, length, bpm };
+}
+
+/** Trailer title cards: three words that build a sentence over the setup shots, the way trailers open a question. */
+const CARD_LINES = [
+  ["ONE MOMENT", "CHANGED", "EVERYTHING"],
+  ["NO ONE", "SAW IT", "COMING"],
+  ["THIS IS", "WHERE IT", "BEGINS"],
+  ["EVERY LEGEND", "HAS A", "BEGINNING"],
+];
+
+function trailerCards(shots: Shot[], bpm: number, videos: EditVideo[]): NonNullable<EditPlan["labels"]> {
+  const beat = 60 / bpm;
+  const lines = CARD_LINES[Math.round(videos.reduce((s, v) => s + v.duration, 0)) % CARD_LINES.length];
+  const cards: NonNullable<EditPlan["labels"]> = [];
+  let t = 0;
+  let n = 0;
+  for (const s of shots) {
+    const len = s.beats * beat;
+    // The setup shots after the cold open carry the cards, from a moment after the cut to just before the next.
+    if (s.role === "intro" && s.fx?.dim && n < lines.length) cards.push({ text: lines[n++], start: r3(t + 0.25), end: r3(t + len - 0.15), style: "card" });
+    t += len;
+  }
+  return cards;
+}
+
+/**
+ * The beat that suits the footage: heavily edited, fast footage (anime,
+ * fight scenes, film action) gets phonk; footage with fewer cuts (sports,
+ * gaming, vlogs) gets hype trap.
+ */
+export function beatFor(videos: EditVideo[]): MusicStyle {
+  const pace = videos.reduce((s, v) => s + cutsPerMinute(v.analysis), 0) / Math.max(1, videos.length);
+  return pace >= 12 ? "phonk" : "trap";
 }
 
 /**
@@ -274,7 +321,33 @@ export function planEdits(videos: EditVideo[], styles: Partial<Record<EditFormat
   const names = videos.map((v) => shortName(v.name));
   const plans: EditPlan[] = [];
 
-  const music = { hype: styles.hype ?? "phonk", versus: styles.versus ?? "trap", feels: styles.feels ?? "cinematic" } as const;
+  const music = {
+    hype: styles.hype ?? beatFor(videos),
+    versus: styles.versus ?? "trap",
+    feels: styles.feels ?? "cinematic",
+    trailer: styles.trailer ?? "cinematic",
+  } as const;
+
+  const trailer = layout("trailer", music.trailer, videos, pools, calm);
+  if (trailer) {
+    plans.push({
+      id: "trailer",
+      format: "trailer",
+      title: "Trailer",
+      emoji: "🎬",
+      why: "Built like a movie trailer: a cold open, three setup shots under title cards that open a question, cuts that speed up, one beat of black silence, then the climax on the drop and a final stinger.",
+      hook: "",
+      cta: "Watch it all on my page",
+      music: music.trailer,
+      // The voices of the setup carry through; the score swells around them.
+      mix: { volume: 0.85, original: 0.6, duck: true },
+      captions: false,
+      exact: true,
+      labels: trailerCards(trailer.shots, trailer.bpm, videos),
+      pause: (60 / trailer.bpm) * (TEMPLATES.trailer.pause ?? 1),
+      ...trailer,
+    });
+  }
   const hype = layout("hype", music.hype, videos, pools, calm);
   if (hype) {
     plans.push({

@@ -20,12 +20,13 @@ export const EDIT_STYLES: Record<EditFormat, MusicStyle[]> = {
   hype: ["phonk", "trap"],
   versus: ["trap", "phonk"],
   feels: ["cinematic", "lofi"],
+  trailer: ["cinematic", "trap", "phonk"],
   quote: ["cinematic", "trap", "lofi"],
   countdown: ["lofi", "trap", "afro"],
 };
 
 /** Formats cut to the beat grid (intro, build, drop, slow motion); the others follow the speech. */
-const BEAT_FORMATS: EditFormat[] = ["hype", "versus", "feels"];
+const BEAT_FORMATS: EditFormat[] = ["hype", "versus", "feels", "trailer"];
 
 /** The seed the export composes with, so the preview plays the same track. */
 export const musicSeed = (plan: EditPlan) => Math.round(plan.shots[0].start * 10) + plan.shots.length;
@@ -238,16 +239,17 @@ function Structure({ plan, videos }: { plan: EditPlan; videos: Record<string, Ma
             key={i}
             title={`${s.role} · ${s.beats} beat${s.beats === 1 ? "" : "s"}${s.speed ? " · slow motion" : ""}`}
             className={`h-full ${s.role === "drop" || s.role === "outro" ? "opacity-100" : "opacity-60"}`}
-            style={{ width: `${(s.beats / total) * 100}%`, background: videos[s.clipId]?.color ?? "#888", marginLeft: at[i] === dropBeat ? 2 : 0 }}
+            style={{ width: `${(s.beats / total) * 100}%`, background: s.role === "pause" ? "#000" : (videos[s.clipId]?.color ?? "#888"), marginLeft: at[i] === dropBeat ? 2 : 0 }}
           />
         ))}
         <span className="pointer-events-none absolute inset-y-0 w-0.5 bg-white" style={{ left: `${(dropBeat / total) * 100}%` }} />
       </div>
       <div className="flex justify-between text-[10px] uppercase tracking-wide text-subtle">
-        <span>Intro</span>
+        <span>{plan.format === "trailer" ? "Setup" : "Intro"}</span>
         <span>Build</span>
-        <span className="text-fg">Drop</span>
-        <span>Slow-mo</span>
+        {plan.format === "trailer" && <span>Pause</span>}
+        <span className="text-fg">{plan.format === "trailer" ? "Climax" : "Drop"}</span>
+        <span>{plan.format === "trailer" ? "Stinger" : "Slow-mo"}</span>
       </div>
     </div>
   );
@@ -314,7 +316,7 @@ function EditPreview({ plan, videos }: { plan: EditPlan; videos: Record<string, 
     }
     setState("loading");
     const { planTrack, renderTrack } = await import("@/lib/audio/music");
-    const buffer = await renderTrack(planTrack(plan.music, plan.length, plan.dropAt, musicSeed(plan)));
+    const buffer = await renderTrack(planTrack(plan.music, plan.length, plan.dropAt, musicSeed(plan), plan.pause));
     const ctx = new AudioContext();
     const src = ctx.createBufferSource();
     src.buffer = buffer;
@@ -367,6 +369,7 @@ function EditPreview({ plan, videos }: { plan: EditPlan; videos: Record<string, 
 
   const s = shot >= 0 ? plan.shots[shot] : null;
   const flash = s?.fx?.flash ? "bg-white" : s?.fx?.dip ? "bg-black" : null;
+  const label = plan.labels?.find((l) => time >= l.start && time < l.end);
   return (
     <div className="relative aspect-[9/16] w-full shrink-0 overflow-hidden rounded-xl bg-black sm:w-44" data-testid="mashup-preview">
       {poster && state !== "playing" && (
@@ -376,13 +379,18 @@ function EditPreview({ plan, videos }: { plan: EditPlan; videos: Record<string, 
       <PreviewVideo ref={first} on={state === "playing" && shot >= 0 && shot % 2 === 0} fx={s?.fx} voice={voice} />
       <PreviewVideo ref={second} on={state === "playing" && shot % 2 === 1} fx={s?.fx} voice={voice} />
       {state === "playing" && flash && <div key={shot} className={`pointer-events-none absolute inset-0 animate-cut ${flash}`} />}
-      {state === "playing" && time < 3 && (
+      {state === "playing" && time < 3 && plan.hook && (
         <p className="absolute inset-x-2 top-[14%] text-center font-display text-lg uppercase leading-tight text-white [text-shadow:0_0_6px_#000,0_2px_0_#000]">{plan.hook}</p>
       )}
-      {state === "playing" && plan.labels?.find((l) => time >= l.start && time < l.end) && (
-        <p className="absolute left-3 top-[24%] font-display text-4xl text-[#ffd84a] [text-shadow:0_0_6px_#000,0_3px_0_#000]">
-          {plan.labels.find((l) => time >= l.start && time < l.end)?.text}
+      {state === "playing" && s?.fx?.dim && <div className="pointer-events-none absolute inset-0 bg-black/45" />}
+      {state === "playing" && s?.fx?.blackout && <div className="pointer-events-none absolute inset-0 bg-black" />}
+      {state === "playing" && label && label.style === "card" && (
+        <p key={label.text} className="absolute inset-x-2 top-1/2 -translate-y-1/2 animate-pop text-center font-display text-3xl uppercase tracking-wider text-white [text-shadow:0_0_8px_#000]">
+          {label.text}
         </p>
+      )}
+      {state === "playing" && label && label.style !== "card" && (
+        <p className="absolute left-3 top-[24%] font-display text-4xl text-[#ffd84a] [text-shadow:0_0_6px_#000,0_3px_0_#000]">{label.text}</p>
       )}
       {state === "playing" && time >= plan.length - 1.6 && (
         <p className="absolute inset-x-2 bottom-[22%] text-center font-display text-base uppercase leading-tight text-white [text-shadow:0_0_6px_#000,0_2px_0_#000]">{plan.cta}</p>

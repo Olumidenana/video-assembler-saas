@@ -96,4 +96,10 @@ describe("countdown labels", () => {
     expect(ass).toContain("Style: Label,Anton,");
     expect(ass).toMatch(/Dialogue: 1,0:00:09\.50,0:00:20\.00,Label,,0,0,0,,\{[^}]*\}#2/);
   });
+
+  it("centers trailer title cards", () => {
+    const ass = buildAss([], "clean", { width: 720, height: 1280, fps: 30 }, { labels: [{ text: "CHANGED", start: 3, end: 5.5, style: "card" }] });
+    expect(ass).toContain("Style: Card,Anton,");
+    expect(ass).toMatch(/Dialogue: 2,0:00:03\.00,0:00:05\.50,Card,,0,0,0,,\{\\fad\(180,180\)[^}]*\}CHANGED/);
+  });
 });

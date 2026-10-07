@@ -118,7 +118,14 @@ const PENTA = [0, 3, 5, 7, 10, 12];
  * exactly on `dropAt`; before it the arrangement is sparse and filtered, the
  * last bar builds (snare roll, riser) and a short gap sets up the impact.
  */
-export function planTrack(style: MusicStyle, duration: number, dropAt: number, seed = 1): TrackPlan {
+export function planTrack(
+  style: MusicStyle,
+  duration: number,
+  dropAt: number,
+  seed = 1,
+  /** Silence before the drop, in seconds. Trailers hold a full beat of nothing before the hit. */
+  pause = 0.12,
+): TrackPlan {
   const bpm = MUSIC_STYLES.find((s) => s.id === style)!.bpm;
   const beat = 60 / bpm;
   const bar = beat * 4;
@@ -127,7 +134,7 @@ export function planTrack(style: MusicStyle, duration: number, dropAt: number, s
   // Too early to build up: start with the full beat.
   const drop = dropAt < Math.min(1.5, bar * 0.75) ? 0 : Math.min(dropAt, Math.max(0, duration - 1));
   const origin = drop - Math.ceil(drop / bar) * bar;
-  const gap = drop > 0 ? 0.12 : 0;
+  const gap = drop > 0 ? Math.max(0.12, pause) : 0;
   const events: NoteEvent[] = [];
   const add = (e: NoteEvent) => {
     if (e.t < 0 || e.t >= duration) return;
@@ -139,7 +146,9 @@ export function planTrack(style: MusicStyle, duration: number, dropAt: number, s
 
   if (drop > 0) {
     const riseFrom = Math.max(0, drop - Math.min(4, bar * (style === "lofi" ? 1 : 2)));
-    events.push({ t: riseFrom, inst: "riser", dur: drop - riseFrom, vel: style === "lofi" ? 0.35 : 0.8 });
+    // A long pause cuts the riser off with everything else, so the silence is total.
+    const riseTo = gap > 0.2 ? drop - gap : drop;
+    events.push({ t: riseFrom, inst: "riser", dur: Math.max(0.1, riseTo - riseFrom), vel: style === "lofi" ? 0.35 : 0.8 });
   }
   if (style !== "lofi") {
     add({ t: drop, inst: "impact", vel: style === "cinematic" ? 1 : 0.8 });
@@ -498,7 +507,7 @@ export function encodeWav(channels: Float32Array[], sampleRate: number): Uint8Ar
 }
 
 /** Composes and renders a track as WAV bytes. Browser only. */
-export async function composeWav(style: MusicStyle, duration: number, dropAt: number, seed = 1): Promise<Uint8Array> {
-  const buffer = await renderTrack(planTrack(style, duration, dropAt, seed));
+export async function composeWav(style: MusicStyle, duration: number, dropAt: number, seed = 1, pause?: number): Promise<Uint8Array> {
+  const buffer = await renderTrack(planTrack(style, duration, dropAt, seed, pause));
   return encodeWav([buffer.getChannelData(0), buffer.getChannelData(1)], buffer.sampleRate);
 }

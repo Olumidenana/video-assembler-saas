@@ -95,8 +95,8 @@ export interface AssExtras {
   outro?: { text: string; start: number; end: number };
   /** Small series label ("PART 1") in the top corner for the whole clip: people follow to see the next part. */
   badge?: { text: string; end: number };
-  /** Big labels over parts of the video, e.g. "#3", "#2", "#1" in a countdown. */
-  labels?: { text: string; start: number; end: number }[];
+  /** Big labels over parts of the video: countdown numbers ("#3") top-left, or trailer title cards ("CHANGED") centered. */
+  labels?: { text: string; start: number; end: number; style?: "count" | "card" }[];
 }
 
 export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, extras: AssExtras = {}): string {
@@ -128,7 +128,12 @@ export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, e
   for (const l of extras.labels ?? []) {
     const text = clean(l.text).trim();
     if (text && l.end > l.start) {
-      events.push(`Dialogue: 1,${assTime(l.start)},${assTime(l.end)},Label,,0,0,0,,{\\fad(80,0)\\fscx60\\fscy60\\t(0,160,\\fscx110\\fscy110)\\t(160,260,\\fscx100\\fscy100)}${text}`);
+      events.push(
+        l.style === "card"
+          ? // A trailer card: fades in, drifts slightly closer, fades out.
+            `Dialogue: 2,${assTime(l.start)},${assTime(l.end)},Card,,0,0,0,,{\\fad(180,180)\\fscx96\\fscy96\\t(0,${Math.round((l.end - l.start) * 1000)},\\fscx104\\fscy104)}${text}`
+          : `Dialogue: 1,${assTime(l.start)},${assTime(l.end)},Label,,0,0,0,,{\\fad(80,0)\\fscx60\\fscy60\\t(0,160,\\fscx110\\fscy110)\\t(160,260,\\fscx100\\fscy100)}${text}`,
+      );
     }
   }
   const outro = extras.outro && clean(extras.outro.text).trim();
@@ -184,6 +189,8 @@ export function buildAss(words: Word[], style: CaptionStyleId, canvas: Canvas, e
     styles[style],
     // Outro: same look as the hook, lower third, so it never covers the hook's spot.
     `Style: Outro,Anton,${Math.round(base * (portrait ? 0.075 : 0.06))},${WHITE},${WHITE},&HA0000000,&HA0000000,0,0,0,0,100,100,1,0,3,${Math.max(8, Math.round(base * 0.016))},0,2,${marginH},${marginH},${Math.round(H * (portrait ? 0.32 : 0.14))},1`,
+    // Card: a trailer title card, big and centered, wide letter spacing.
+    `Style: Card,Anton,${Math.round(base * 0.12)},${WHITE},${WHITE},${BLACK},${SHADOW},0,0,0,0,100,100,${Math.round(base * 0.006)},0,1,${Math.max(2, Math.round(base * 0.004))},2,5,${marginH},${marginH},0,1`,
     // Label: a big countdown number ("#1"), top-left under the hook, yellow with a heavy outline.
     `Style: Label,Anton,${Math.round(base * 0.16)},${YELLOW},${YELLOW},${BLACK},${SHADOW},0,0,0,0,100,100,1,0,1,${Math.max(4, Math.round(base * 0.012))},2,7,${Math.round(W * 0.06)},${marginH},${Math.round(H * 0.2)},1`,
     // Badge: small, top-left, brand purple box.

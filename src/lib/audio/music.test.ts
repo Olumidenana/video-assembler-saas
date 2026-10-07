@@ -47,3 +47,15 @@ describe("encodeWav", () => {
     expect(view.getInt16(44 + 4 * 2, true)).toBe(-32768);
   });
 });
+
+describe("trailer pause", () => {
+  it("leaves a full beat of silence before the drop, riser included", async () => {
+    const { planTrack } = await import("./music");
+    const beat = 60 / 90;
+    const plan = planTrack("cinematic", 26, 24 * beat, 1, beat);
+    const drop = 24 * beat;
+    const sounding = plan.events.filter((e) => e.t < drop && (e.t >= drop - beat || e.t + (e.dur ?? 0) > drop - beat + 0.01));
+    expect(sounding.filter((e) => e.inst !== "pad" && e.inst !== "keys" && e.inst !== "sub")).toEqual([]);
+    expect(plan.events.some((e) => e.inst === "impact" && Math.abs(e.t - drop) < 1e-6)).toBe(true);
+  });
+});

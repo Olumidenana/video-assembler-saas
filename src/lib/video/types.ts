@@ -63,4 +63,8 @@ export interface SegmentFx {
   shake?: boolean;
   /** Hold a punch-in for the whole segment (1.2 = 20% closer, framed on the upper middle where faces are). */
   zoom?: number;
+  /** Darken the shot so a title card over it reads clearly. */
+  dim?: boolean;
+  /** Black, silent frames: the trailer's pause before the hit. */
+  blackout?: boolean;
 }

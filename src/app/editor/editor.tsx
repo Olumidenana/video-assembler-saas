@@ -1063,6 +1063,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       normalize: true,
       frameExact: plan.exact,
       labels: plan.labels,
+      musicPause: plan.pause,
     });
   }
 
@@ -1131,8 +1132,10 @@ export function Editor({ plan }: { plan: PlanId }) {
       endCard?: number;
       /** Beat-synced edit: cut on exact frames so every cut stays on its beat. */
       frameExact?: boolean;
-      /** Big on-screen labels in output time ("#3", "#2", "#1"). */
-      labels?: { text: string; start: number; end: number }[];
+      /** Big on-screen labels in output time: countdown numbers, or trailer title cards. */
+      labels?: { text: string; start: number; end: number; style?: "count" | "card" }[];
+      /** Seconds of silence in the music before the drop (trailers). */
+      musicPause?: number;
     } = {},
   ) {
     let s = run.settings ?? settings;
@@ -1233,7 +1236,7 @@ export function Editor({ plan }: { plan: PlanId }) {
               if (!style) return music.style === "own" && ownTrack ? { ...mix, bytes: ownTrack.bytes, ext: ownTrack.ext } : null;
               const seed = Math.round(renderItems[0].start * 10) + renderItems.length;
               const drop = run.drops?.get(itemKey(renderItems[renderItems.length - 1])) ?? outputPeak(renderItems, analyses.current);
-              return { ...mix, bytes: await composeWav(style, duration, drop, seed), ext: "wav" };
+              return { ...mix, bytes: await composeWav(style, duration, drop, seed, run.musicPause), ext: "wav" };
             }
           : undefined,
       onProgress: (progress: number) => setExportState({ status: "running", progress }),

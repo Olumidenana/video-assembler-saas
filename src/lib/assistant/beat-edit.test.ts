@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ClipAnalysis } from "@/lib/video/analysis";
-import { findHits, planEdits, shortName } from "./beat-edit";
+import { beatFor, findHits, planEdits, shortName } from "./beat-edit";
 
 function rng(seed: number) {
   return () => {
@@ -85,10 +85,10 @@ describe("beat edits", () => {
     expect(quiet.length).toBeGreaterThanOrEqual(feels.shots.length / 2);
   });
 
-  it("makes a hype and an emotional edit from a single episode", () => {
+  it("makes a trailer, a hype and an emotional edit from a single episode", () => {
     const plans = planEdits([videos[0]]);
-    expect(plans.map((p) => p.id)).toEqual(["hype", "feels"]);
-    expect(plans[0].shots.filter((s) => s.role === "drop").length).toBeGreaterThanOrEqual(10);
+    expect(plans.map((p) => p.id)).toEqual(["trailer", "hype", "feels"]);
+    expect(plans[1].shots.filter((s) => s.role === "drop").length).toBeGreaterThanOrEqual(10);
   });
 
   it("still makes an edit from one video with only a short fight", () => {
@@ -102,6 +102,30 @@ describe("beat edits", () => {
     const hype = plans.find((p) => p.id === "hype")!;
     expect(hype).toBeDefined();
     expect(hype.shots.reduce((s, x) => s + x.beats, 0)).toBe(36);
+  });
+
+  it("builds a trailer: setup under title cards, a beat of black silence, the climax on the drop", () => {
+    const tr = planEdits(videos).find((p) => p.id === "trailer")!;
+    const beat = 60 / 90;
+    expect(tr.music).toBe("cinematic");
+    expect(tr.shots.reduce((s, x) => s + x.beats, 0)).toBe(40);
+    expect(tr.dropAt).toBeCloseTo(24 * beat, 2);
+    expect(tr.pause).toBeCloseTo(beat, 3);
+    const pauseAt = tr.shots.findIndex((x) => x.role === "pause");
+    expect(tr.shots[pauseAt]).toMatchObject({ beats: 1, fx: { blackout: true } });
+    expect(tr.shots.slice(0, pauseAt + 1).reduce((s, x) => s + x.beats, 0)).toBe(24);
+    expect(tr.shots[pauseAt + 1]).toMatchObject({ role: "drop", fx: { punch: true, shake: true } });
+    // Three cards, one over each setup shot after the cold open, forming one line.
+    const cards = tr.labels!;
+    expect(cards.map((c) => c.style)).toEqual(["card", "card", "card"]);
+    expect(cards[0].start).toBeGreaterThan(4 * beat);
+    expect(cards[2].end).toBeLessThan(16 * beat);
+    expect(tr.hook).toBe("");
+  });
+
+  it("picks phonk for fast, heavily cut footage and trap for the rest", () => {
+    expect(beatFor([{ ...videos[0], analysis: { ...videos[0].analysis, cuts: videos[0].analysis.cuts.map((_, i) => (i % 4 === 0 ? 0.8 : 0)) } }])).toBe("phonk");
+    expect(beatFor([{ ...videos[0], analysis: { ...videos[0].analysis, cuts: videos[0].analysis.cuts.map((_, i) => (i % 40 === 0 ? 0.8 : 0)) } }])).toBe("trap");
   });
 
   it("shortens file names for the screen", () => {

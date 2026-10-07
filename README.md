@@ -221,6 +221,14 @@ edits) are: music first, every cut on a beat. `planEdits` lays out 9 bars of the
 | Drop | 4 | the strongest hit lands exactly on the drop (flash, zoom punch, shake), then a cut on every beat, strongest last |
 | Outro | 1 | half-speed slow motion of a big moment (the "aura" ending) with the call to action; no end card, so it loops |
 
+**Trailer** (`format: "trailer"`, 10 bars, ~27 s at 90 BPM) follows how movie trailers hook: a cold
+open, three dimmed setup shots under title cards that build one line ("ONE MOMENT… CHANGED…
+EVERYTHING": an open question), cuts that speed up, one beat of black silence before the drop (the
+music's `pause` stops everything, riser included, so the brain braces for the hit), the climax on
+the drop with the strongest hit last, and a stinger with the call to action. The voices of the setup
+carry through; the score swells around them. The hype edit's beat is picked from the footage
+(`beatFor`: phonk for fast, heavily cut footage, hype trap otherwise).
+
 Shots are cut around measured hits (`findHits`: peaks of loudness and motion, 2 s apart, theme songs
 skipped) so the impact lands just after the cut, never reusing footage, and alternating videos. Formats:
 **Hype edit** (phonk or trap, ~16 s), **A vs B** (alternates strictly between two videos; versus
