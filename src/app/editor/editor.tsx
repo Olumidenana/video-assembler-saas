@@ -6,6 +6,7 @@ import { describeAction, parseCommandLocally, type EditorAction } from "@/lib/as
 import { applyActions, needsAnalysis } from "@/lib/assistant/apply";
 import { buildSuggestions, type Suggestion } from "@/lib/assistant/suggestions";
 import { MAX_REMEMBERED_BYTES, projectStore } from "@/lib/video/project-store";
+import { takeSharedFiles } from "@/lib/share-inbox";
 import { PLAN_LIMITS, type PlanId } from "@/lib/plans";
 import { BIN_SECONDS, type ClipAnalysis } from "@/lib/video/analysis";
 import type { MediaInfo } from "@/lib/video/types";
@@ -155,6 +156,21 @@ export function Editor({ plan }: { plan: PlanId }) {
       cancelled = true;
     };
     // Once, on arrival; restoreProject reads the initial render's state on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Videos shared into the installed app (Share -> Anti-Timeout) arrive here.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("shared")) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+    takeSharedFiles()
+      .then((files) => {
+        if (files.length) void addFiles(files);
+        else setErrors((e) => [...e, "The shared video didn't come through. Tap Add videos to pick it, or share it again."]);
+      })
+      .catch(() => setErrors((e) => [...e, "The shared video didn't come through. Tap Add videos to pick it."]));
+    // Once, on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

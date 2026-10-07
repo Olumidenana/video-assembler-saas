@@ -1,6 +1,7 @@
 import { getViewer } from "@/lib/billing/account";
 import { HardLink } from "./hard-link";
 import { LogoMark } from "./icons";
+import { InstallButton } from "./pwa";
 
 export async function SiteHeader() {
   const { user, plan } = await getViewer();
@@ -15,6 +16,7 @@ export async function SiteHeader() {
         </HardLink>
 
         <div className="flex items-center gap-1 sm:gap-2">
+          <InstallButton />
           <HardLink href="/editor" className="btn btn-ghost btn-sm">
             Editor
           </HardLink>

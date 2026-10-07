@@ -51,6 +51,14 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // The service worker must always be fresh, or app updates would wait on an old copy.
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
         // Self-hosted FFmpeg core (copied by scripts/copy-ffmpeg-core.mjs).
         // Workers spawned from these files need COEP themselves to stay isolated.
         source: "/ffmpeg/:path*",

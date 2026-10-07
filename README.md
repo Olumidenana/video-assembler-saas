@@ -292,6 +292,17 @@ follows. Nothing is uploaded.
   audit; Instagram Graph API with a Business account and Meta app review), so for now clips go out
   through the share sheet with the caption copied.
 
+## Installable app (PWA)
+
+`src/app/manifest.ts` + `public/sw.js` + `src/components/pwa.tsx`. "Get the app" in the header
+installs it (Chrome, Edge, Samsung Internet; iPhone and iPad get the Add to Home Screen steps). It opens
+full screen at /editor, with shortcuts to Clip Pack and Edits on a long press of the icon. The service
+worker caches the video engine, speech and face-tracking files (tens of MB) so they're downloaded once,
+serves pages network-first with the last copy offline (the editor works without a connection after the
+first visit, except AI, sign-in and payments), and never caches API calls or video byte ranges. On
+Android the app appears in the share menu for videos: the worker keeps shared files in IndexedDB and opens
+the editor, which adds them (`src/lib/share-inbox.ts`). Bump `VERSION` in sw.js to drop old caches.
+
 ## Music (`src/lib/audio/music.ts`)
 
 Original beats composed in the browser for each export (Phonk, Hype trap, Afro/Amapiano,

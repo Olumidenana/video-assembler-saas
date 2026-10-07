@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SiteFooter } from "@/components/site-footer";
+import { ServiceWorkerRegistration } from "@/components/pwa";
 import { RevealObserver } from "@/components/reveal";
 import { SiteHeader } from "@/components/site-header";
 import { publicEnv } from "@/lib/env";
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="flex min-h-full flex-col overflow-x-clip">
         <RevealObserver />
+        <ServiceWorkerRegistration />
         <SiteHeader />
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6 sm:py-14">{children}</main>
         <SiteFooter />
