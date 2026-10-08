@@ -300,6 +300,15 @@ follows. Nothing is uploaded.
   audit; Instagram Graph API with a Business account and Meta app review), so for now clips go out
   through the share sheet with the caption copied.
 
+## Hosting costs (Vercel Pro)
+
+The app is built to be cheap to host: video work happens on the user's device, so server functions
+only handle sign-in, billing, AI and YouTube tokens. The main cost is Fast Data Transfer (1 TB a month
+included on Pro): a first visit downloads the video engine (~31 MB; speech and face tracking load
+only when used), and the service worker keeps it on the device, so returning users download almost
+nothing. `vercel.json` skips builds when a push only changes docs (`*.md`, `.env.example`, SQL
+migrations).
+
 ## Installable app (PWA)
 
 `src/app/manifest.ts` + `public/sw.js` + `src/components/pwa.tsx`. "Get the app" in the header
