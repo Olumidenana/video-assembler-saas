@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ConnectedNotice } from "./notice";
 
-export const metadata: Metadata = { title: "TikTok · Anti-Timeout" };
+export const metadata: Metadata = { title: "TikTok · AuraCut" };
 
 const MESSAGES: Record<string, string> = {
   ok: "Your TikTok account is connected. You can close this window and post from the editor.",

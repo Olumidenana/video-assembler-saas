@@ -111,20 +111,17 @@ export function GoogleIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-/** Brand mark: two clip blocks joined by a cut line. */
+/** Brand mark: AuraCut official logo. */
 export function LogoMark({ size = 28 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <defs>
-        <linearGradient id="logo-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#9d8fff" />
-          <stop offset="1" stopColor="#ff7ac6" />
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="9" fill="url(#logo-g)" />
-      <rect x="7" y="10" width="7.5" height="12" rx="2" fill="white" fillOpacity="0.95" />
-      <rect x="17.5" y="10" width="7.5" height="12" rx="2" fill="white" fillOpacity="0.7" />
-      <path d="M16 6v20" stroke="white" strokeWidth="1.6" strokeDasharray="2 2" />
-    </svg>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/auracut-logo.png"
+      width={size}
+      height={size}
+      alt="AuraCut"
+      className="rounded-lg object-cover shadow-sm"
+      style={{ width: size, height: size }}
+    />
   );
 }

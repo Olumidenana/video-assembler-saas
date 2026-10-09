@@ -240,7 +240,7 @@ function fitFilter(input: string, out: string, W: number, H: number, fps: number
 /** Escapes text for FFmpeg's drawtext (inside a filtergraph). */
 const drawtextEscape = (text: string) => text.replace(/\\/g, "\\\\").replace(/'/g, "\u2019").replace(/:/g, "\\:");
 
-export const WATERMARK_TEXT = "Made with Anti-Timeout";
+export const WATERMARK_TEXT = "Made with AuraCut";
 
 export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: string, overlays: Overlays = {}): string[] {
   const { width: W, height: H, fps } = canvas;

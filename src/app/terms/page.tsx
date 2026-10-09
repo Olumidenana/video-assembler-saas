@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 import { LegalPage, supportEmail } from "@/components/legal-page";
 
-export const metadata: Metadata = { title: "Terms of Service · Anti-Timeout" };
+export const metadata: Metadata = { title: "Terms of Service · AuraCut" };
 
 export default function TermsPage() {
   return (
     <LegalPage title="Terms of Service" updated="30 September 2026">
-      <p>By using Anti-Timeout, you agree to these terms. If you don&apos;t agree, please don&apos;t use the service.</p>
+      <p>By using AuraCut, you agree to these terms. If you don&apos;t agree, please don&apos;t use the service.</p>
 
       <h2>The service</h2>
       <p>
-        Anti-Timeout lets you trim, split and join videos in your browser. Processing uses your device&apos;s resources,
+        AuraCut lets you trim, split and join videos in your browser. Processing uses your device&apos;s resources,
         so speed and the size of videos you can handle depend on your device and browser.
       </p>
 
@@ -35,7 +35,7 @@ export default function TermsPage() {
       </ul>
 
       <h2>Acceptable use</h2>
-      <p>Don&apos;t use Anti-Timeout for anything unlawful, or try to disrupt, reverse-engineer or abuse the service.</p>
+      <p>Don&apos;t use AuraCut for anything unlawful, or try to disrupt, reverse-engineer or abuse the service.</p>
 
       <h2>No warranty</h2>
       <p>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ConnectedNotice } from "./notice";
 
-export const metadata: Metadata = { title: "YouTube · Anti-Timeout" };
+export const metadata: Metadata = { title: "YouTube · AuraCut" };
 
 const MESSAGES: Record<string, string> = {
   ok: "Your YouTube channel is connected. You can close this window and post from the editor.",

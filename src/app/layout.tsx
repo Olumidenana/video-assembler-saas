@@ -22,12 +22,12 @@ const description =
 
 export const metadata: Metadata = {
   metadataBase: new URL(publicEnv.siteUrl),
-  title: { default: "Anti-Timeout · AI video splitter & stitcher", template: "%s" },
+  title: { default: "AuraCut · AI video splitter & stitcher", template: "%s" },
   description,
-  openGraph: { type: "website", siteName: "Anti-Timeout", title: "Anti-Timeout · AI cuts the best parts", description },
-  twitter: { card: "summary_large_image", title: "Anti-Timeout · AI cuts the best parts", description },
+  openGraph: { type: "website", siteName: "AuraCut", title: "AuraCut · AI cuts the best parts", description },
+  twitter: { card: "summary_large_image", title: "AuraCut · AI cuts the best parts", description },
   icons: { apple: "/apple-touch-icon.png" },
-  appleWebApp: { capable: true, title: "Anti-Timeout", statusBarStyle: "black-translucent" },
+  appleWebApp: { capable: true, title: "AuraCut", statusBarStyle: "black-translucent" },
 };
 
 export const viewport = { themeColor: "#0a0a0d" };

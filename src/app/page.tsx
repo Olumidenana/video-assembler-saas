@@ -180,7 +180,7 @@ export default function Home() {
             One long video in. <span className="text-gradient">A week of viral clips out.</span>
           </h1>
           <p className="max-w-xl text-lg text-muted text-pretty">
-            Anti-Timeout watches your video like a top editor: it finds the moments with the strongest hooks, adds
+            AuraCut watches your video like a top editor: it finds the moments with the strongest hooks, adds
             word-by-word captions, reframes them for Reels, TikTok and Shorts, and scores every clip&apos;s viral
             potential. All in your browser.
           </p>
@@ -228,7 +228,7 @@ export default function Home() {
         </div>
         <div className="card relative flex flex-col gap-3 overflow-hidden border-brand/40 p-6 sm:p-8">
           <div className="pointer-events-none absolute -right-16 -top-16 size-48 rounded-full bg-brand/25 blur-3xl" />
-          <span className="relative text-sm font-medium text-brand">With Anti-Timeout</span>
+          <span className="relative text-sm font-medium text-brand">With AuraCut</span>
           <p className="relative text-xl font-semibold">Drop the video in. Get ranked, captioned, vertical clips in minutes.</p>
           <p className="relative text-sm text-muted">
             Nothing to upload, no queue, no time limit. Your device does the work, so a 2-hour video is no problem.

@@ -190,7 +190,7 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         )}
         {limits.watermark && (
           <span className="text-muted">
-            · Free exports include a small &quot;Made with Anti-Timeout&quot; mark.{" "}
+            · Free exports include a small &quot;Made with AuraCut&quot; mark.{" "}
             <HardLink href="/pricing" className="text-brand hover:underline">
               Remove it
             </HardLink>

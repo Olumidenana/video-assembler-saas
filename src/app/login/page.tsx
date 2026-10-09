@@ -6,7 +6,7 @@ import { safeNextPath } from "@/lib/billing/status";
 import { supabaseConfigured } from "@/lib/env";
 import { GoogleButton } from "./google-button";
 
-export const metadata: Metadata = { title: "Sign in · Anti-Timeout" };
+export const metadata: Metadata = { title: "Sign in · AuraCut" };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const params = await searchParams;
@@ -20,7 +20,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         <div className="flex flex-col items-center gap-4 text-center">
           <LogoMark size={44} />
           <div className="flex flex-col gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">Welcome to Anti-Timeout</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Welcome to AuraCut</h1>
             <p className="text-sm text-muted">Sign in to upgrade to Pro and keep your plan on every device.</p>
           </div>
         </div>
