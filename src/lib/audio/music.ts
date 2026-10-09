@@ -9,15 +9,21 @@
  * FFmpeg can mix under the video.
  */
 
+import musicKnowledge from "@/lib/assistant/knowledge/music.json";
+
 export type MusicStyle = "phonk" | "trap" | "afro" | "cinematic" | "lofi";
 
-export const MUSIC_STYLES: { id: MusicStyle; label: string; hint: string; bpm: number }[] = [
-  { id: "phonk", label: "Phonk", hint: "Cowbells & distorted 808: anime and car edits", bpm: 130 },
-  { id: "trap", label: "Hype trap", hint: "Hard 808s, rolling hats: sports, gaming, motivation", bpm: 140 },
-  { id: "afro", label: "Afro / Amapiano", hint: "Log drums & shakers: dance, lifestyle, skits", bpm: 112 },
-  { id: "cinematic", label: "Cinematic", hint: "Riser into a huge hit: reveals and epic moments", bpm: 90 },
-  { id: "lofi", label: "Lo-fi", hint: "Warm and chill: vlogs, stories, study", bpm: 80 },
-];
+export const MUSIC_STYLES: { id: MusicStyle; label: string; hint: string; bpm: number }[] = (
+  ["phonk", "trap", "afro", "cinematic", "lofi"] as const
+).map((id) => {
+  const g = (musicKnowledge.genres as Record<string, { label: string; hint: string; bpmRange: { default: number } }>)[id];
+  return {
+    id,
+    label: g?.label ?? id,
+    hint: g?.hint ?? "",
+    bpm: g?.bpmRange?.default ?? 120,
+  };
+});
 
 export type Instrument =
   | "kick"

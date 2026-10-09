@@ -285,20 +285,40 @@ follows. Nothing is uploaded.
 
 ## Posting (`src/lib/social`, `src/app/editor/post-tools.tsx`)
 
-- **Post to YouTube (Studio)**: the creator connects their channel once in a popup
-  (`/api/youtube/connect` -> Google -> `/api/youtube/callback`, which keeps only the refresh token in
-  `social_connections`, migration 0004). Each finished clip can be posted now or scheduled: the
-  browser gets a short-lived token (`/api/youtube/token`) and uploads straight from the device to
-  YouTube (resumable upload); a scheduled post goes up private with `publishAt`, and YouTube makes it
-  public then. Needs `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (see `.env.example`). Until Google
-  verifies the app for the youtube.upload scope, only accounts added as test users can connect, and
-  the default API quota allows about 6 uploads a day across the whole site (1,600 units each of
-  10,000): request a quota increase before launch.
-- **Posting plan (all plans)**: spreads the clips over the coming days at lunch and evening times and
-  downloads an `.ics` calendar with a reminder and the caption for each post.
-- TikTok and Instagram direct posting need their platform's app review (TikTok Content Posting API
-  audit; Instagram Graph API with a Business account and Meta app review), so for now clips go out
-  through the share sheet with the caption copied.
+Every finished video has a unified **Post Panel** with destination buttons showing honest connection states:
+
+- **Post to YouTube Shorts (Studio)**:
+  - **How it works**: Connect once in an OAuth popup (`/api/youtube/connect` -> Google -> `/api/youtube/callback`). The refresh token is saved securely in `social_connections` (migration `0004_social.sql`). When posting, the browser requests a short-lived access token (`/api/youtube/token`) and uploads directly from the client to YouTube via resumable upload. Clips can be published immediately or scheduled (`publishAt`).
+  - **Setup for Site Owner**:
+    1. In Google Cloud Console, enable **YouTube Data API v3**.
+    2. In OAuth consent screen: configure user type, and add scopes `https://www.googleapis.com/auth/youtube.upload` and `https://www.googleapis.com/auth/youtube.readonly`.
+    3. In Credentials, create an OAuth 2.0 Client ID (Web Application) with Authorized Redirect URI: `<NEXT_PUBLIC_SITE_URL>/api/youtube/callback`.
+    4. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in environment variables / Vercel Secrets.
+    5. Run migration `supabase/migrations/0004_social.sql`. Add developer/test Gmail accounts under Test Users while unverified.
+
+- **Post to TikTok (Studio)**:
+  - **How it works**: Connect via TikTok OAuth v2 with PKCE (`/api/tiktok/connect` -> TikTok -> `/api/tiktok/callback`). Refresh token is saved in `social_connections` (migration `0005_tiktok.sql`). Browser requests a temporary access token (`/api/tiktok/token`) and executes chunked uploads (min 5 MB chunks) directly to TikTok's upload URL.
+  - Defaults to **upload to inbox** (`/v2/post/publish/inbox/video/init/`), where creators receive a push notification in the TikTok app to finalize captions, effects, and publish. If `TIKTOK_DIRECT_POST=1`, directly posts to the user profile (`/v2/post/publish/video/init/`).
+  - Cross-Origin Isolation Fallback: If browser direct upload is blocked by COOP/COEP or CORS restrictions, it streams through the short-lived relay (`/api/tiktok/relay`) without storing data.
+  - **Setup for Site Owner**:
+    1. Register at [TikTok for Developers](https://developers.tiktok.com/) and create an app.
+    2. Add products: **Login Kit** and **Content Posting API**.
+    3. Add Redirect URI: `<NEXT_PUBLIC_SITE_URL>/api/tiktok/callback`.
+    4. Under App Details -> Test Users, invite sandbox TikTok handles during development.
+    5. Copy Client Key and Client Secret into `TIKTOK_CLIENT_KEY` and `TIKTOK_CLIENT_SECRET`.
+    6. Run database migration `supabase/migrations/0005_tiktok.sql`.
+
+- **WhatsApp (All Plans)**:
+  - On mobile devices, uses the Web Share API (`navigator.share({ files: [mp4] })`) so the native share sheet allows posting directly to WhatsApp Status or chats with the caption copied.
+  - On desktop (where browsers don't support file sharing via Web Share), downloads the MP4 file and launches `https://wa.me/?text=<encoded_caption>` with clear guidance to attach the downloaded video.
+
+- **Instagram Reels (All Plans)**:
+  - On mobile devices, triggers the system share sheet with the video file and copied caption.
+  - On desktop, downloads the MP4 and opens `https://www.instagram.com/` with step-by-step instructions.
+  - *Why not direct API upload?* The Instagram Graph API requires an Instagram Business/Creator account connected to a Facebook Page, Meta App Review, and pulls the video from a public URL (which would violate the privacy guarantee that videos stay strictly in the browser and are never uploaded to our servers). See `docs/research/summary.md` for details.
+
+- **Posting Plan (All Plans)**:
+  - Spreads clips over upcoming days at lunch (12:00) and evening (19:00) times and exports an `.ics` calendar file with reminder alerts and formatted captions for each clip.
 
 ## Hosting costs (Vercel Pro)
 

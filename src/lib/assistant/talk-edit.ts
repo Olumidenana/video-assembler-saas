@@ -16,6 +16,8 @@ import type { ClipAnalysis } from "@/lib/video/analysis";
 import type { Word } from "@/lib/video/captions";
 import { type EditPlan, type Shot, shortName } from "./beat-edit";
 import { findClipsByScene, findViralClips, type ViralClip } from "./viral";
+import hooksData from "./knowledge/hooks.json";
+import ctasData from "./knowledge/ctas.json";
 
 export interface TalkVideo {
   clipId: string;
@@ -71,8 +73,8 @@ export function planQuote(quote: ViralClip, music: MusicStyle, fps: number, inde
     title: index === 0 ? "Quote edit" : "Quote edit #2",
     emoji: "🎙️",
     why: `The strongest line, kept whole (${Math.round(length)}s), with a punch-in zoom on every bar so the frame keeps moving, word-by-word captions for people watching on mute, and a score that swells underneath.`,
-    hook: "Listen to this till the end",
-    cta: "Send this to someone who needs it",
+    hook: hooksData.families.curiosity?.find((h) => h.template.toLowerCase().includes("listen"))?.template ?? "Listen to this till the end",
+    cta: ctasData.ctas.find((c) => c.niche === "podcasts" && c.type === "direct_share")?.text ?? "Send this to someone who needs it",
     music,
     bpm,
     shots,
@@ -130,7 +132,7 @@ export function planCountdown(videos: TalkVideo[], music: MusicStyle = "lofi", c
     emoji: "🏆",
     why: `The ${ordered.length} strongest moments, weakest first and numbered down to #1. A countdown is an open loop: people stay to see #1, which is what the algorithm rewards.`,
     hook: `Top ${ordered.length} moments. Wait for #1`,
-    cta: "Which one was best? Comment below",
+    cta: ctasData.ctas.find((c) => c.type === "comment_debate" || c.type === "engagement_question")?.text ?? "Which one was best? Comment below",
     music,
     bpm,
     shots,

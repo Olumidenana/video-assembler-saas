@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { HardLink } from "@/components/hard-link";
 import { describeAction, parseCommandLocally, type EditorAction } from "@/lib/assistant/actions";
 import { applyActions, needsAnalysis } from "@/lib/assistant/apply";
@@ -36,8 +36,7 @@ import { pickHooks } from "@/lib/assistant/hooks";
 import type { ThemeMashup, VisionVerdict } from "@/lib/assistant/claude";
 import { TaskBanner } from "./task-banner";
 import { WorkspaceNav } from "./workspace-nav";
-import { ShareButton } from "./share-button";
-import { PostPlanner, useYouTube, YouTubeButton } from "./post-tools";
+import { PostPanel, PostPlanner, useTikTok, useYouTube } from "./post-tools";
 import { forgetThumbnails } from "./thumbnails";
 import { DEFAULT_MUSIC, type OwnTrack } from "./music-controls";
 import { VIRAL_RANGES, ViralPanel, type VideoKind, type ViralRange } from "./viral-panel";
@@ -83,6 +82,8 @@ type ExportState =
   | { status: "done"; outputs: ExportOutput[] }
   | { status: "error"; message: string };
 
+const VALID_TABS = ["tool-start", "tool-pack", "tool-mashup", "tool-viral", "tool-edit", "tool-timeline", "tool-captions", "tool-music", "tool-brand", "export"] as const;
+
 export function Editor({ plan }: { plan: PlanId }) {
   const limits = PLAN_LIMITS[plan];
   const [engine] = useState(() => new VideoEngine());
@@ -127,6 +128,29 @@ export function Editor({ plan }: { plan: PlanId }) {
   const [ownTrack, setOwnTrack] = useState<OwnTrack | null>(null);
   // Picked on the start screen; runs once the first video has been read.
   const [goal, setGoal] = useState<Goal | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("tool-start");
+
+  const switchTab = useCallback((target: string) => {
+    const valid = (timeline.segments.length > 0 || target === "tool-start") ? target : "tool-start";
+    setActiveTab(valid);
+    if (typeof window !== "undefined" && window.location.hash !== `#${valid}`) {
+      window.location.hash = valid;
+    }
+  }, [timeline.segments.length]);
+
+  useEffect(() => {
+    const readHash = () => {
+      const h = window.location.hash.replace(/^#/, "");
+      if (h && (VALID_TABS as readonly string[]).includes(h)) {
+        setActiveTab(timeline.segments.length > 0 || h === "tool-start" ? h : "tool-start");
+      } else if (!window.location.hash) {
+        setActiveTab(timeline.segments.length > 0 ? "tool-pack" : "tool-start");
+      }
+    };
+    readHash();
+    window.addEventListener("hashchange", readHash);
+    return () => window.removeEventListener("hashchange", readHash);
+  }, [timeline.segments.length]);
 
   useEffect(() => {
     engine.load().then(
@@ -331,16 +355,20 @@ export function Editor({ plan }: { plan: PlanId }) {
     const picked = goal;
     queueMicrotask(() => {
       setGoal(null);
-      if (picked === "viral") void findViral(VIRAL_RANGES[0]);
-      else if (picked === "highlight") void runActions([{ type: "highlights", seconds: 30 }]);
-      else if (picked === "captions") {
+      if (picked === "viral") {
+        switchTab("tool-viral");
+        void findViral(VIRAL_RANGES[0]);
+      } else if (picked === "highlight") {
+        switchTab("tool-edit");
+        void runActions([{ type: "highlights", seconds: 30 }]);
+      } else if (picked === "captions") {
         setSettings((s) => ({ ...s, aspect: "9:16", fit: "blur", captions: true }));
-        document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
+        switchTab("tool-captions");
       }
     });
     // Runs once per goal; the actions read the current render's timeline.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [goal, timeline.segments.length, pending.length, engineStatus]);
+  }, [goal, timeline.segments.length, pending.length, engineStatus, switchTab]);
 
   function pickGoal(picked: Goal | null) {
     setGoal(picked);
@@ -362,6 +390,9 @@ export function Editor({ plan }: { plan: PlanId }) {
         rememberClip(id, file, info);
         // Analyse in the background so suggestions appear and auto-edit is instant.
         analyzeInBackground(id, info);
+        if (typeof window !== "undefined" && (!window.location.hash || window.location.hash === "#tool-start")) {
+          switchTab("tool-pack");
+        }
       } catch (err) {
         void engine.removeClip(id).catch(() => {});
         if (!(err instanceof CancelledError)) {
@@ -681,13 +712,13 @@ export function Editor({ plan }: { plan: PlanId }) {
   function useViralClip(clip: ViralClip) {
     setHistory((h) => [...h.slice(-19), timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }))]);
     dispatch({ type: "replaceSegments", segments: [{ clipId: clip.clipId, start: clip.start, end: clip.end }] });
-    document.querySelector("[data-testid=segment-list]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    switchTab("tool-timeline");
   }
 
   function exportViralClips(list: ViralClip[]) {
     const clipItems: ExportItem[] = list.map((c) => ({ clipId: c.clipId, info: timeline.clips[c.clipId].info, start: c.start, end: c.end }));
     void startExport(clipItems, list.length > 1 ? "parts" : "stitch");
-    document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
+    switchTab("export");
   }
 
   async function changeLogo(file: File | null) {
@@ -1070,7 +1101,7 @@ export function Editor({ plan }: { plan: PlanId }) {
   function editToTimeline(plan: EditPlan) {
     setHistory((h) => [...h.slice(-19), timeline.segments.map(({ clipId, start, end }) => ({ clipId, start, end }))]);
     dispatch({ type: "replaceSegments", segments: plan.shots.map(({ clipId, start, end }) => ({ clipId, start, end })) });
-    document.querySelector("[data-testid=segment-list]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    switchTab("tool-timeline");
   }
 
   /**
@@ -1298,8 +1329,11 @@ export function Editor({ plan }: { plan: PlanId }) {
 
   // Whatever started it (Export, Clip Pack, an edit card), show the finished video when it's ready.
   useEffect(() => {
-    if (exportState.status === "done") document.querySelector("[data-testid=outputs]")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [exportState.status]);
+    if (exportState.status === "done") {
+      switchTab("export");
+      document.querySelector("[data-testid=outputs]")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [exportState.status, switchTab]);
 
   const { clips, segments, selectedId } = timeline;
   const selected = segments.find((s) => s.id === selectedId) ?? null;
@@ -1341,8 +1375,8 @@ export function Editor({ plan }: { plan: PlanId }) {
 
   return (
     <div className="lg:grid lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:gap-8">
-      <WorkspaceNav plan={plan} hasVideos={segments.length > 0} totalBytes={totalBytes} />
-      <div className="flex min-w-0 flex-col gap-6">
+      <WorkspaceNav plan={plan} hasVideos={segments.length > 0} totalBytes={totalBytes} active={activeTab} onSelect={switchTab} />
+      <div className="flex min-w-0 flex-col gap-6 pb-24 lg:pb-0">
         <div className="flex flex-wrap items-center gap-2">
           <EngineBadge status={engineStatus} mode={engine.mode} />
           {memory === "saved" && (
@@ -1401,7 +1435,7 @@ export function Editor({ plan }: { plan: PlanId }) {
             e.currentTarget.value = "";
           }}
         />
-        <div id="tool-start" className="scroll-mt-32">
+        <div id="tool-start" className={`scroll-mt-32 ${activeTab === "tool-start" ? "" : "hidden"}`}>
           {segments.length === 0 && !restoring ? (
             <StartPanel onPick={pickGoal} onDrop={(files) => void addFiles(files)} />
           ) : (
@@ -1457,67 +1491,75 @@ export function Editor({ plan }: { plan: PlanId }) {
         )}
 
         {segments.length > 0 && (
-          <AutoEditPanel
-            disabled={engineStatus !== "ready" || running}
-            message={assistant}
-            canUndo={history.length > 0}
-            suggestions={suggestions}
-            analysing={analysing}
-            onSuggestion={(sg) => void applySuggestion(sg)}
-            onHighlights={(seconds) => void runActions([{ type: "highlights", seconds }])}
-            onRemoveSilence={() => void runActions([{ type: "remove_silence" }])}
-            onCommand={(text) => void runCommand(text)}
-            onUndo={undo}
-            onExport={() => {
-              void startExport();
-              document.getElementById("export")?.scrollIntoView({ behavior: "smooth" });
-            }}
-            onCancel={() => {
-              engine.cancel();
-              void engine.load().catch(() => setEngineStatus("error"));
-            }}
-          />
+          <div className={activeTab === "tool-edit" ? "" : "hidden"}>
+            <AutoEditPanel
+              disabled={engineStatus !== "ready" || running}
+              message={assistant}
+              canUndo={history.length > 0}
+              suggestions={suggestions}
+              analysing={analysing}
+              onSuggestion={(sg) => void applySuggestion(sg)}
+              onHighlights={(seconds) => void runActions([{ type: "highlights", seconds }])}
+              onRemoveSilence={() => void runActions([{ type: "remove_silence" }])}
+              onCommand={(text) => void runCommand(text)}
+              onUndo={undo}
+              onExport={() => {
+                void startExport();
+                switchTab("export");
+              }}
+              onCancel={() => {
+                engine.cancel();
+                void engine.load().catch(() => setEngineStatus("error"));
+              }}
+            />
+          </div>
         )}
 
         {segments.length > 0 && (
-          <ClipPack limits={limits} busy={Boolean(task) || running || engineStatus !== "ready"} onMake={(p, n, v) => void makeClipPack(p, n, v)} />
+          <div className={activeTab === "tool-pack" ? "" : "hidden"}>
+            <ClipPack limits={limits} busy={Boolean(task) || running || engineStatus !== "ready"} onMake={(p, n, v) => void makeClipPack(p, n, v)} />
+          </div>
         )}
 
         {segments.length > 0 && (
-          <MashupPanel
-            videos={Object.keys(clips).map((id) => ({ id, name: clips[id].file.name, url: clips[id].url, color: colors[id] }))}
-            limits={limits}
-            busy={Boolean(task) || running || engineStatus !== "ready"}
-            edits={edits?.filter((p) => p.shots.every((x) => clips[x.clipId])) ?? null}
-            onFind={(ids, ai) => void findMashups(ids, ai)}
-            onMake={(p) => void makeEdit(p)}
-            onTimeline={editToTimeline}
-            onRestyle={restyleEdit}
-            onAddVideos={() => fileInput.current?.click()}
-          />
+          <div className={activeTab === "tool-mashup" ? "" : "hidden"}>
+            <MashupPanel
+              videos={Object.keys(clips).map((id) => ({ id, name: clips[id].file.name, url: clips[id].url, color: colors[id] }))}
+              limits={limits}
+              busy={Boolean(task) || running || engineStatus !== "ready"}
+              edits={edits?.filter((p) => p.shots.every((x) => clips[x.clipId])) ?? null}
+              onFind={(ids, ai) => void findMashups(ids, ai)}
+              onMake={(p) => void makeEdit(p)}
+              onTimeline={editToTimeline}
+              onRestyle={restyleEdit}
+              onAddVideos={() => fileInput.current?.click()}
+            />
+          </div>
         )}
 
         {segments.length > 0 && (
-          <ViralPanel
-            clips={viral?.clips ?? null}
-            basis={viral?.basis ?? null}
-            busy={Boolean(task) || running || engineStatus !== "ready"}
-            exportable={limits.viralClipExports}
-            canImprove={plan !== "free"}
-            improved={viral?.improved ?? false}
-            clipName={(id) => clips[id]?.file.name ?? "video"}
-            clipUrl={(id) => clips[id]?.url}
-            speech={settings.speech}
-            onSpeech={(speech) => setSettings((s) => ({ ...s, speech }))}
-            onFind={(range, kind) => void findViral(range, kind)}
-            onImprove={() => void improveViral()}
-            onUse={useViralClip}
-            onExport={exportViralClips}
-          />
+          <div className={activeTab === "tool-viral" ? "" : "hidden"}>
+            <ViralPanel
+              clips={viral?.clips ?? null}
+              basis={viral?.basis ?? null}
+              busy={Boolean(task) || running || engineStatus !== "ready"}
+              exportable={limits.viralClipExports}
+              canImprove={plan !== "free"}
+              improved={viral?.improved ?? false}
+              clipName={(id) => clips[id]?.file.name ?? "video"}
+              clipUrl={(id) => clips[id]?.url}
+              speech={settings.speech}
+              onSpeech={(speech) => setSettings((s) => ({ ...s, speech }))}
+              onFind={(range, kind) => void findViral(range, kind)}
+              onImprove={() => void improveViral()}
+              onUse={useViralClip}
+              onExport={exportViralClips}
+            />
+          </div>
         )}
 
         {segments.length > 0 && (
-          <div id="tool-timeline" className="flex scroll-mt-32 flex-col gap-6">
+          <div id="tool-timeline" className={`flex scroll-mt-32 flex-col gap-6 ${activeTab === "tool-timeline" ? "" : "hidden"}`}>
             <Timeline
               segments={segments}
               colors={colors}
@@ -1564,16 +1606,26 @@ export function Editor({ plan }: { plan: PlanId }) {
         )}
 
         {segments.length > 0 && (
-          <section id="export" className="card flex scroll-mt-24 flex-col gap-5 p-5 sm:p-6">
+          <section id="export" className={`card flex scroll-mt-24 flex-col gap-5 p-5 sm:p-6 ${activeTab === "export" || activeTab === "tool-captions" || activeTab === "tool-music" || activeTab === "tool-brand" ? "" : "hidden"}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">Export</h2>
-              <span className="badge">
-                {methods.size === 1 && methods.has("copy")
-                  ? "Fast join · no re-encode"
-                  : methods.has("copy")
-                    ? "Mix of fast copy and re-encode"
-                    : "Re-encode · frame-accurate"}
-              </span>
+              <h2 className="text-lg font-semibold">
+                {activeTab === "tool-captions"
+                  ? "Captions"
+                  : activeTab === "tool-music"
+                    ? "Music"
+                    : activeTab === "tool-brand"
+                      ? "Format & Logo"
+                      : "Export"}
+              </h2>
+              {activeTab === "export" && (
+                <span className="badge">
+                  {methods.size === 1 && methods.has("copy")
+                    ? "Fast join · no re-encode"
+                    : methods.has("copy")
+                      ? "Mix of fast copy and re-encode"
+                      : "Re-encode · frame-accurate"}
+                </span>
+              )}
             </div>
 
             <ExportSettingsPanel
@@ -1590,91 +1642,127 @@ export function Editor({ plan }: { plan: PlanId }) {
                   setOwnTrack({ name: file.name, bytes: new Uint8Array(buf), ext: (file.name.split(".").pop() ?? "mp3").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp3" }),
                 );
               }}
+              activeTab={activeTab}
             />
 
-            <fieldset className="grid gap-3 sm:grid-cols-2" disabled={running}>
-              <legend className="sr-only">Export mode</legend>
-              <ModeOption
-                checked={mode === "stitch"}
-                onChange={() => setMode("stitch")}
-                title="Stitch into one video"
-                body="Join every segment, in order, into a single MP4."
-              />
-              <ModeOption
-                checked={mode === "parts"}
-                onChange={() => setMode("parts")}
-                title="Save each segment as its own file"
-                body="One MP4 per segment. Great after splitting into parts."
-              />
-            </fieldset>
+            {activeTab === "export" ? (
+              <>
+                <fieldset className="grid gap-3 sm:grid-cols-2" disabled={running}>
+                  <legend className="sr-only">Export mode</legend>
+                  <ModeOption
+                    checked={mode === "stitch"}
+                    onChange={() => setMode("stitch")}
+                    title="Stitch into one video"
+                    body="Join every segment, in order, into a single MP4."
+                  />
+                  <ModeOption
+                    checked={mode === "parts"}
+                    onChange={() => setMode("parts")}
+                    title="Save each segment as its own file"
+                    body="One MP4 per segment. Great after splitting into parts."
+                  />
+                </fieldset>
 
-            {fastCutAvailable && (
-              <label className="flex items-start gap-3 text-sm text-muted">
-                <input
-                  type="checkbox"
-                  checked={fastCut}
-                  disabled={running}
-                  onChange={(e) => setFastCut(e.target.checked)}
-                  className="mt-1 accent-brand"
-                />
-                <span>
-                  <span className="text-fg">Fast cut</span> (no re-encode, no quality loss). Cuts snap to the nearest
-                  keyframe, so they can be off by up to a couple of seconds.
-                </span>
-              </label>
-            )}
-
-            {downscaled && (
-              <p className="text-sm text-muted">
-                {limits.label} exports are capped at {limits.maxShortSide}p.{" "}
-                <HardLink href="/pricing" className="text-brand hover:underline">
-                  Go Pro for full resolution
-                </HardLink>
-              </p>
-            )}
-
-            {overClipLimit && (
-              <p className="notice notice-warn" data-testid="clip-limit">
-                The {limits.label} plan stitches up to {limits.maxStitchClips} different videos (you&apos;re using{" "}
-                {videosInUse}). Remove some, or{" "}
-                <HardLink href="/pricing" className="font-medium underline">
-                  upgrade to Pro
-                </HardLink>{" "}
-                for unlimited stitching.
-              </p>
-            )}
-
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" onClick={() => void startExport()} disabled={exportDisabled} className="btn btn-primary btn-lg">
-                {engineStatus === "loading" && !running ? "Loading engine…" : running ? "Exporting…" : "Export"}
-              </button>
-              {running && (
-                <>
-                  <div className="h-2 min-w-32 flex-1 overflow-hidden rounded-full bg-surface-3">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2 transition-[width] duration-300"
-                      style={{ width: `${Math.round(exportState.progress * 100)}%` }}
+                {fastCutAvailable && (
+                  <label className="flex items-start gap-3 text-sm text-muted">
+                    <input
+                      type="checkbox"
+                      checked={fastCut}
+                      disabled={running}
+                      onChange={(e) => setFastCut(e.target.checked)}
+                      className="mt-1 accent-brand"
                     />
-                  </div>
-                  <progress className="sr-only" value={exportState.progress} max={1} />
-                  <span className="w-12 text-right font-mono text-sm">{Math.round(exportState.progress * 100)}%</span>
-                  <button type="button" onClick={cancelExport} className="btn btn-ghost">
-                    Cancel
-                  </button>
-                </>
-              )}
-            </div>
+                    <span>
+                      <span className="text-fg">Fast cut</span> (no re-encode, no quality loss). Cuts snap to the nearest
+                      keyframe, so they can be off by up to a couple of seconds.
+                    </span>
+                  </label>
+                )}
 
-            {exportState.status === "idle" && exportState.message && (
-              <p className="text-sm text-muted">{exportState.message}</p>
+                {downscaled && (
+                  <p className="text-sm text-muted">
+                    {limits.label} exports are capped at {limits.maxShortSide}p.{" "}
+                    <HardLink href="/pricing" className="text-brand hover:underline">
+                      Go Pro for full resolution
+                    </HardLink>
+                  </p>
+                )}
+
+                {overClipLimit && (
+                  <p className="notice notice-warn" data-testid="clip-limit">
+                    The {limits.label} plan stitches up to {limits.maxStitchClips} different videos (you&apos;re using{" "}
+                    {videosInUse}). Remove some, or{" "}
+                    <HardLink href="/pricing" className="font-medium underline">
+                      upgrade to Pro
+                    </HardLink>{" "}
+                    for unlimited stitching.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button type="button" onClick={() => void startExport()} disabled={exportDisabled} className="btn btn-primary btn-lg">
+                    {engineStatus === "loading" && !running ? "Loading engine…" : running ? "Exporting…" : "Export"}
+                  </button>
+                  {running && (
+                    <>
+                      <div className="h-2 min-w-32 flex-1 overflow-hidden rounded-full bg-surface-3">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2 transition-[width] duration-300"
+                          style={{ width: `${Math.round(exportState.progress * 100)}%` }}
+                        />
+                      </div>
+                      <progress className="sr-only" value={exportState.progress} max={1} />
+                      <span className="w-12 text-right font-mono text-sm">{Math.round(exportState.progress * 100)}%</span>
+                      <button type="button" onClick={cancelExport} className="btn btn-ghost">
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {exportState.status === "idle" && exportState.message && (
+                  <p className="text-sm text-muted">{exportState.message}</p>
+                )}
+                {exportState.status === "error" && (
+                  <p className="notice notice-danger" role="alert">
+                    {exportState.message}
+                  </p>
+                )}
+                {exportState.status === "done" && <Outputs outputs={exportState.outputs} canShare />}
+              </>
+            ) : (
+              <div className="flex items-center justify-between border-t border-line pt-4">
+                <p className="text-sm text-muted">Settings saved automatically.</p>
+                <button type="button" onClick={() => switchTab("export")} className="btn btn-primary">
+                  Go to Export →
+                </button>
+              </div>
             )}
-            {exportState.status === "error" && (
-              <p className="notice notice-danger" role="alert">
-                {exportState.message}
-              </p>
-            )}
-            {exportState.status === "done" && <Outputs outputs={exportState.outputs} canShare />}
           </section>
+        )}
+
+        {segments.length > 0 && activeTab !== "export" && (
+          <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur shadow-lg lg:hidden">
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate text-xs font-medium text-fg">
+                {exportState.status === "done"
+                  ? "✓ Video ready"
+                  : running
+                    ? `Exporting (${Math.round(exportState.progress * 100)}%)`
+                    : `${segments.length} segment${segments.length === 1 ? "" : "s"} · ${formatTime(totalDuration)}`}
+              </span>
+              <span className="text-[11px] text-muted">
+                {exportState.status === "done" ? "Tap to view and share" : running ? "Processing..." : "Tap to review settings and export"}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm shrink-0"
+              onClick={() => switchTab("export")}
+            >
+              {exportState.status === "done" ? "View Outputs" : running ? "View Progress" : "Go to Export →"}
+            </button>
+          </div>
         )}
 
         <details className="text-sm">
@@ -1822,6 +1910,7 @@ function previewShape(aspect: Aspect | undefined, single: boolean): string {
 function Outputs({ outputs, canShare }: { outputs: ExportOutput[]; canShare: boolean }) {
   const single = outputs.length === 1;
   const [youtube, refreshYouTube] = useYouTube();
+  const [tiktok, refreshTikTok] = useTikTok();
   const videos = outputs.filter((o) => o.name.endsWith(".mp4"));
   return (
     <div className="flex flex-col gap-4 border-t border-line pt-5" data-testid="outputs">
@@ -1844,18 +1933,28 @@ function Outputs({ outputs, canShare }: { outputs: ExportOutput[]; canShare: boo
           ))}
         </div>
       )}
-      <ul className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-3">
         {outputs.map((o) => (
-          <li key={o.url} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-sm">
-            <span className="truncate font-mono">{o.name}</span>
-            <span className="flex shrink-0 items-center gap-3">
-              <span className="text-subtle">{formatBytes(o.size)}</span>
+          <li key={o.url} className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate font-mono">{o.name}</span>
+              <span className="shrink-0 text-subtle">{formatBytes(o.size)}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <a href={o.url} download={o.name} className="btn btn-secondary btn-sm">
-                <DownloadIcon size={15} /> Download {o.name}
+                <DownloadIcon size={15} /> Download
               </a>
-              {o.name.endsWith(".mp4") && <ShareButton url={o.url} name={o.name} text={o.shareText} allowed={canShare} />}
-              {o.name.endsWith(".mp4") && <YouTubeButton file={o} status={youtube} refresh={refreshYouTube} />}
-            </span>
+              {o.name.endsWith(".mp4") && (
+                <PostPanel
+                  file={o}
+                  youtube={youtube}
+                  refreshYouTube={refreshYouTube}
+                  tiktok={tiktok}
+                  refreshTikTok={refreshTikTok}
+                  canShare={canShare}
+                />
+              )}
+            </div>
           </li>
         ))}
       </ul>
