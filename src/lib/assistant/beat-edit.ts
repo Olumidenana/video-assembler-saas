@@ -21,6 +21,9 @@ import { MUSIC_STYLES, type MusicStyle } from "@/lib/audio/music";
 import { BIN_SECONDS, type ClipAnalysis } from "@/lib/video/analysis";
 import { cutsPerMinute, findMoments, rawScores, themeSongRanges } from "@/lib/video/highlights";
 import type { SegmentFx } from "@/lib/video/types";
+import formatsData from "./knowledge/formats.json";
+import hooksData from "./knowledge/hooks.json";
+import ctasData from "./knowledge/ctas.json";
 
 export type EditFormat = "hype" | "versus" | "feels" | "trailer" | "quote" | "countdown";
 
@@ -84,13 +87,27 @@ interface Hit {
   strength: number;
 }
 
-/** Beats per shot, by section. Hype: long intro shots, cuts speeding up, a cut on every beat after the drop. */
+/** Beats per shot, by section, derived from empirical formats knowledge. */
 const TEMPLATES: Record<"hype" | "feels" | "trailer", { intro: number[]; build: number[]; pause?: number; drop: number[]; outro: number }> = {
-  hype: { intro: [4, 4], build: [2, 2, 1, 1, 1, 1], drop: [4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], outro: 4 },
-  feels: { intro: [4, 4], build: [4, 2, 2], drop: [4, 4, 4, 4], outro: 4 },
-  // A movie trailer: a cold open and three setup shots under title cards, cuts that speed up,
-  // one beat of black silence, then the climax on the drop and a final stinger.
-  trailer: { intro: [4, 4, 4, 4], build: [2, 2, 1, 1, 1], pause: 1, drop: [4, 1, 1, 1, 1, 1, 1, 1, 1], outro: 4 },
+  hype: {
+    intro: (formatsData.formats.hype.sections.find((s) => s.name === "intro")?.lengthBeats as number[]) ?? [4, 4],
+    build: (formatsData.formats.hype.sections.find((s) => s.name === "build")?.lengthBeats as number[]) ?? [2, 2, 1, 1, 1, 1],
+    drop: (formatsData.formats.hype.sections.find((s) => s.name === "drop")?.lengthBeats as number[]) ?? [4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    outro: (formatsData.formats.hype.sections.find((s) => s.name === "outro")?.lengthBeats as number) ?? 4,
+  },
+  feels: {
+    intro: (formatsData.formats.feels.sections.find((s) => s.name === "intro")?.lengthBeats as number[]) ?? [4, 4],
+    build: (formatsData.formats.feels.sections.find((s) => s.name === "build")?.lengthBeats as number[]) ?? [4, 2, 2],
+    drop: (formatsData.formats.feels.sections.find((s) => s.name === "drop")?.lengthBeats as number[]) ?? [4, 4, 4, 4],
+    outro: (formatsData.formats.feels.sections.find((s) => s.name === "outro")?.lengthBeats as number) ?? 4,
+  },
+  trailer: {
+    intro: (formatsData.formats.trailer.sections.find((s) => s.name === "intro")?.lengthBeats as number[]) ?? [4, 4, 4, 4],
+    build: (formatsData.formats.trailer.sections.find((s) => s.name === "build")?.lengthBeats as number[]) ?? [2, 2, 1, 1, 1],
+    pause: (formatsData.formats.trailer.sections.find((s) => s.name === "pause")?.lengthBeats as number) ?? 1,
+    drop: (formatsData.formats.trailer.sections.find((s) => s.name === "drop")?.lengthBeats as number[]) ?? [4, 1, 1, 1, 1, 1, 1, 1, 1],
+    outro: (formatsData.formats.trailer.sections.find((s) => s.name === "outro")?.lengthBeats as number) ?? 4,
+  },
 };
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -268,13 +285,16 @@ function layout(
   return { shots, dropAt, length, bpm };
 }
 
-/** Trailer title cards: three words that build a sentence over the setup shots, the way trailers open a question. */
-const CARD_LINES = [
-  ["ONE MOMENT", "CHANGED", "EVERYTHING"],
-  ["NO ONE", "SAW IT", "COMING"],
-  ["THIS IS", "WHERE IT", "BEGINS"],
-  ["EVERY LEGEND", "HAS A", "BEGINNING"],
-];
+/** Trailer title cards: three words that build a sentence over the setup shots, derived from research triads. */
+const CARD_LINES: [string, string, string][] =
+  hooksData.trailerTriads && hooksData.trailerTriads.length > 0
+    ? (hooksData.trailerTriads.map((t: { triad: string[] }) => [t.triad[0], t.triad[1], t.triad[2]] as [string, string, string]))
+    : [
+        ["ONE MOMENT", "CHANGED", "EVERYTHING"],
+        ["NO ONE", "SAW IT", "COMING"],
+        ["THIS IS", "WHERE IT", "BEGINS"],
+        ["EVERY LEGEND", "HAS A", "BEGINNING"],
+      ];
 
 function trailerCards(shots: Shot[], bpm: number, videos: EditVideo[]): NonNullable<EditPlan["labels"]> {
   const beat = 60 / bpm;
@@ -337,7 +357,7 @@ export function planEdits(videos: EditVideo[], styles: Partial<Record<EditFormat
       emoji: "🎬",
       why: "Built like a movie trailer: a cold open, three setup shots under title cards that open a question, cuts that speed up, one beat of black silence, then the climax on the drop and a final stinger.",
       hook: "",
-      cta: "Watch it all on my page",
+      cta: ctasData.ctas.find((c) => c.niche === "movie-edits")?.text ?? "Watch it all on my page",
       music: music.trailer,
       // The voices of the setup carry through; the score swells around them.
       mix: { volume: 0.85, original: 0.6, duck: true },
@@ -356,8 +376,8 @@ export function planEdits(videos: EditVideo[], styles: Partial<Record<EditFormat
       title: "Hype edit",
       emoji: "⚡",
       why: `${hype.shots.length} cuts on the beat: slow intro, cuts speeding up, the biggest hit on the drop, a cut on every beat, then a slow-motion ending that loops.`,
-      hook: "Wait for the drop",
-      cta: "Rate this edit 1-10",
+      hook: hooksData.families.curiosity?.find((h) => h.template.toLowerCase().includes("drop"))?.template ?? "Wait for the drop",
+      cta: ctasData.ctas.find((c) => c.niche === "anime" && c.type === "comment_score")?.text ?? "Rate this edit 1-10",
       music: music.hype,
       mix: EDIT_MIX,
       captions: false,
@@ -376,7 +396,7 @@ export function planEdits(videos: EditVideo[], styles: Partial<Record<EditFormat
         emoji: "🥊",
         why: "Cuts back and forth between the two on every beat. Versus edits make people pick a side in the comments, and comments push a video further.",
         hook: `${names[0]} vs ${names[1]}`,
-        cta: "Who wins? Comment below",
+        cta: ctasData.ctas.find((c) => c.niche === "anime-vs")?.text ?? "Who wins? Comment below",
         music: music.versus,
         mix: EDIT_MIX,
         captions: false,
@@ -393,8 +413,8 @@ export function planEdits(videos: EditVideo[], styles: Partial<Record<EditFormat
       title: "Emotional edit",
       emoji: "💧",
       why: "Quiet, heavy moments cut on the bar with soft dips, a swelling score, and a slow-motion ending. Sad edits get saved and sent to friends.",
-      hook: "This one hits different",
-      cta: "Send this to someone who gets it",
+      hook: Object.values(hooksData.families).flat().find((h: { template: string }) => h.template.includes("hits different"))?.template ?? "This one hits different",
+      cta: ctasData.ctas.find((c) => c.type === "direct_share")?.text ?? "Send this to someone who gets it",
       music: music.feels,
       mix: EDIT_MIX,
       captions: false,
@@ -426,7 +446,7 @@ export function planThemedEdit(
     ...meta,
     format,
     emoji: "🧠",
-    cta: format === "feels" ? "Send this to someone who gets it" : "Rate this edit 1-10",
+    cta: format === "feels" ? (ctasData.ctas.find((c) => c.type === "direct_share")?.text ?? "Send this to someone who gets it") : (ctasData.ctas.find((c) => c.niche === "anime" && c.type === "comment_score")?.text ?? "Rate this edit 1-10"),
     ai: true,
     mix: EDIT_MIX,
     captions: false,

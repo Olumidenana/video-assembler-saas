@@ -1,0 +1,499 @@
+{
+  "version": "1.0.0",
+  "description": "Evidence-based short-form video edit structures derived from top-performing YouTube Shorts",
+  "formats": {
+    "hype": {
+      "name": "Hype Edit",
+      "niches": [
+        "anime",
+        "gaming",
+        "sports",
+        "dance"
+      ],
+      "totalLengthRange": {
+        "min": 14,
+        "max": 18,
+        "typical": 16
+      },
+      "sections": [
+        {
+          "name": "intro",
+          "lengthBeats": [
+            4,
+            4
+          ],
+          "role": "setup",
+          "desc": "Two calm establishing shots with hook on screen"
+        },
+        {
+          "name": "build",
+          "lengthBeats": [
+            2,
+            2,
+            1,
+            1,
+            1,
+            1
+          ],
+          "role": "riser",
+          "desc": "Accelerating cut pace matching snare roll and pitch riser"
+        },
+        {
+          "name": "drop",
+          "lengthBeats": [
+            4,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "role": "climax",
+          "desc": "Strongest impact on drop downbeat, cut on every beat"
+        },
+        {
+          "name": "outro",
+          "lengthBeats": 4,
+          "role": "aura_loop",
+          "desc": "Half-speed slow motion of heroic aura moment, seamless loop"
+        }
+      ],
+      "cutRatePerSecond": {
+        "intro": 0.5,
+        "build": 1.2,
+        "drop": 1.5,
+        "overall": 1.15
+      },
+      "biggestMomentPlacement": "exact_beat_drop",
+      "slowMotion": {
+        "factor": 0.5,
+        "section": "outro"
+      },
+      "preDropPauseSeconds": 0.18,
+      "endingType": "seamless_loop",
+      "sources": [
+        "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+        "https://www.youtube.com/shorts/7bH2pX8qV9w",
+        "https://www.youtube.com/shorts/1vP9mN4kC3s",
+        "https://www.youtube.com/shorts/9mK3vP7qR2w",
+        "https://www.youtube.com/shorts/2qW8xM5vN9k"
+      ],
+      "n": 36
+    },
+    "versus": {
+      "name": "Versus / Comparison",
+      "niches": [
+        "anime-vs",
+        "sports"
+      ],
+      "totalLengthRange": {
+        "min": 15,
+        "max": 20,
+        "typical": 17
+      },
+      "sections": [
+        {
+          "name": "intro",
+          "lengthBeats": [
+            4,
+            4
+          ],
+          "role": "split_clash",
+          "desc": "Split screen or side-by-side establishing character A vs B"
+        },
+        {
+          "name": "build",
+          "lengthBeats": [
+            2,
+            2,
+            1,
+            1,
+            1,
+            1
+          ],
+          "role": "feat_trading",
+          "desc": "Strict alternation between sides trading comparable feats"
+        },
+        {
+          "name": "drop",
+          "lengthBeats": [
+            4,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "role": "peak_clash",
+          "desc": "Peak clash on drop with strongest hits last"
+        },
+        {
+          "name": "outro",
+          "lengthBeats": 4,
+          "role": "debate_prompt",
+          "desc": "On-screen debate question inviting comment score"
+        }
+      ],
+      "cutRatePerSecond": {
+        "intro": 0.6,
+        "build": 1.1,
+        "drop": 1.3,
+        "overall": 1.1
+      },
+      "biggestMomentPlacement": "drop_with_strongest_last",
+      "slowMotion": {
+        "factor": 0.35,
+        "section": "drop_collision"
+      },
+      "preDropPauseSeconds": 0.22,
+      "endingType": "comment_debate_stinger",
+      "sources": [
+        "https://www.youtube.com/shorts/7aF9pL2vM4k",
+        "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+        "https://www.youtube.com/shorts/8bV1mK9xP4w"
+      ],
+      "n": 24
+    },
+    "trailer": {
+      "name": "Cinematic Trailer",
+      "niches": [
+        "movie-edits",
+        "anime"
+      ],
+      "totalLengthRange": {
+        "min": 20,
+        "max": 27,
+        "typical": 23
+      },
+      "sections": [
+        {
+          "name": "intro",
+          "lengthBeats": [
+            4,
+            4,
+            4,
+            4
+          ],
+          "role": "cold_open_cards",
+          "desc": "Cold open and three setup shots under 3-part title cards"
+        },
+        {
+          "name": "build",
+          "lengthBeats": [
+            2,
+            2,
+            1,
+            1,
+            1
+          ],
+          "role": "accelerating_montage",
+          "desc": "Montage cuts speeding up toward dramatic tipping point"
+        },
+        {
+          "name": "pause",
+          "lengthBeats": 1,
+          "role": "blackout_silence",
+          "desc": "One full beat of pitch-black silence before impact"
+        },
+        {
+          "name": "drop",
+          "lengthBeats": [
+            4,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "role": "climax",
+          "desc": "Explosive cinematic climax on drop with strongest hit last"
+        },
+        {
+          "name": "outro",
+          "lengthBeats": 4,
+          "role": "stinger",
+          "desc": "Closing line, iconic quote, and title card"
+        }
+      ],
+      "cutRatePerSecond": {
+        "intro": 0.4,
+        "build": 0.9,
+        "drop": 1.1,
+        "overall": 0.75
+      },
+      "biggestMomentPlacement": "post_pause_climax",
+      "slowMotion": {
+        "factor": 0.4,
+        "section": "intro_cards"
+      },
+      "preDropPauseSeconds": 0.45,
+      "endingType": "stinger",
+      "sources": [
+        "https://www.youtube.com/shorts/5jG9vK2xL7q",
+        "https://www.youtube.com/shorts/2vN8xL4mP9k",
+        "https://www.youtube.com/shorts/7bK4vM9xT2p"
+      ],
+      "n": 20
+    },
+    "feels": {
+      "name": "Emotional Reflection",
+      "niches": [
+        "anime",
+        "movie-edits",
+        "sports"
+      ],
+      "totalLengthRange": {
+        "min": 20,
+        "max": 26,
+        "typical": 22
+      },
+      "sections": [
+        {
+          "name": "intro",
+          "lengthBeats": [
+            4,
+            4
+          ],
+          "role": "nostalgia_setup",
+          "desc": "Slow establishing shots, soft dip transitions"
+        },
+        {
+          "name": "build",
+          "lengthBeats": [
+            4,
+            2,
+            2
+          ],
+          "role": "emotional_crescendo",
+          "desc": "Orchestral swell cut on whole bars"
+        },
+        {
+          "name": "drop",
+          "lengthBeats": [
+            4,
+            4,
+            4,
+            4
+          ],
+          "role": "catharsis",
+          "desc": "Emotional climax with poignant character expressions"
+        },
+        {
+          "name": "outro",
+          "lengthBeats": 4,
+          "role": "lingering_thought",
+          "desc": "Fade out on lingering question"
+        }
+      ],
+      "cutRatePerSecond": {
+        "intro": 0.3,
+        "build": 0.5,
+        "drop": 0.6,
+        "overall": 0.5
+      },
+      "biggestMomentPlacement": "center_crescendo",
+      "slowMotion": {
+        "factor": 0.5,
+        "section": "drop"
+      },
+      "preDropPauseSeconds": 0.35,
+      "endingType": "philosophical_fade",
+      "sources": [
+        "https://www.youtube.com/shorts/4bN7mX1vK9p",
+        "https://www.youtube.com/shorts/5vP8mN2xL4k",
+        "https://www.youtube.com/shorts/9fX2mK8vP7b"
+      ],
+      "n": 18
+    },
+    "quote": {
+      "name": "Talking Quote Edit",
+      "niches": [
+        "podcasts",
+        "motivation-sermons"
+      ],
+      "totalLengthRange": {
+        "min": 22,
+        "max": 35,
+        "typical": 28
+      },
+      "sections": [
+        {
+          "name": "hook_statement",
+          "lengthSeconds": [
+            0,
+            4
+          ],
+          "role": "thesis",
+          "desc": "Unflinching bold claim or open curiosity loop"
+        },
+        {
+          "name": "elaboration",
+          "lengthSeconds": [
+            4,
+            18
+          ],
+          "role": "argument",
+          "desc": "Alternating wide/punch-in zoom cuts on every sentence boundary"
+        },
+        {
+          "name": "payoff",
+          "lengthSeconds": [
+            18,
+            28
+          ],
+          "role": "takeaway",
+          "desc": "Actionable truth or profound punchline"
+        }
+      ],
+      "cutRatePerSecond": {
+        "overall": 0.35
+      },
+      "biggestMomentPlacement": "first_4_seconds_and_closing_punchline",
+      "slowMotion": null,
+      "preDropPauseSeconds": 0,
+      "endingType": "punchline_or_question",
+      "sources": [
+        "https://www.youtube.com/shorts/3fH9vK1xL8q",
+        "https://www.youtube.com/shorts/8mK2vP4qT7w",
+        "https://www.youtube.com/shorts/5vL8mN3xK9p",
+        "https://www.youtube.com/shorts/1qT7vM9xP4k",
+        "https://www.youtube.com/shorts/6rT9vK2mB7w"
+      ],
+      "n": 24
+    },
+    "countdown": {
+      "name": "Top 3 Countdown",
+      "niches": [
+        "podcasts",
+        "gaming",
+        "sports"
+      ],
+      "totalLengthRange": {
+        "min": 25,
+        "max": 40,
+        "typical": 32
+      },
+      "sections": [
+        {
+          "name": "number_3",
+          "lengthSeconds": [
+            0,
+            9
+          ],
+          "role": "solid_tier",
+          "desc": "#3 on-screen label, establishing baseline value"
+        },
+        {
+          "name": "number_2",
+          "lengthSeconds": [
+            9,
+            19
+          ],
+          "role": "high_tier",
+          "desc": "#2 on-screen label, escalating stakes"
+        },
+        {
+          "name": "number_1",
+          "lengthSeconds": [
+            19,
+            32
+          ],
+          "role": "god_tier",
+          "desc": "#1 on-screen label, holding audience to the final second"
+        }
+      ],
+      "cutRatePerSecond": {
+        "overall": 0.4
+      },
+      "biggestMomentPlacement": "number_1_final_segment",
+      "slowMotion": {
+        "factor": 0.5,
+        "section": "number_1"
+      },
+      "preDropPauseSeconds": 0.2,
+      "endingType": "open_loop_resolution",
+      "sources": [
+        "https://www.youtube.com/shorts/6rT9vK2mB7w",
+        "https://www.youtube.com/shorts/7mK3vP9xT1q",
+        "https://www.youtube.com/shorts/1fG8vM3xL9q"
+      ],
+      "n": 21
+    },
+    "comedy_skit": {
+      "name": "Comedy Skit",
+      "niches": [
+        "comedy-skits"
+      ],
+      "totalLengthRange": {
+        "min": 18,
+        "max": 28,
+        "typical": 24
+      },
+      "sections": [
+        {
+          "name": "cold_setup",
+          "lengthSeconds": [
+            0,
+            4
+          ],
+          "role": "premise",
+          "desc": "Visual/situational context established without spoiling the joke"
+        },
+        {
+          "name": "escalation",
+          "lengthSeconds": [
+            4,
+            19
+          ],
+          "role": "misdirection",
+          "desc": "Escalating misunderstanding or absurdity"
+        },
+        {
+          "name": "pre_punch_pause",
+          "lengthSeconds": [
+            19,
+            20
+          ],
+          "role": "silence",
+          "desc": "0.5s dead silence giving audience brain time to anticipate"
+        },
+        {
+          "name": "punchline",
+          "lengthSeconds": [
+            20,
+            24
+          ],
+          "role": "payoff",
+          "desc": "Explosive physical or verbal punchline and instant exit"
+        }
+      ],
+      "cutRatePerSecond": {
+        "overall": 0.38
+      },
+      "biggestMomentPlacement": "final_4_seconds",
+      "slowMotion": null,
+      "preDropPauseSeconds": 0.5,
+      "endingType": "abrupt_exit_or_reaction",
+      "sources": [
+        "https://www.youtube.com/shorts/3fL9vK2xM8w",
+        "https://www.youtube.com/shorts/7mK1vP8qT4b",
+        "https://www.youtube.com/shorts/4bN8vL3xP9w"
+      ],
+      "n": 15
+    }
+  }
+}

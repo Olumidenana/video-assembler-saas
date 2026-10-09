@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { LegalPage, supportEmail } from "@/components/legal-page";
 
-export const metadata: Metadata = { title: "Privacy Policy · Anti-Timeout" };
+export const metadata: Metadata = { title: "Privacy Policy · AuraCut" };
 
 export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy" updated="30 September 2026">
       <p>
-        Anti-Timeout is a video editor that runs in your web browser. This policy explains what information we handle and
+        AuraCut is a video editor that runs in your web browser. This policy explains what information we handle and
         why.
       </p>
 
@@ -38,7 +38,7 @@ export default function PrivacyPage() {
 
       <h2>How we share information</h2>
       <p>
-        We do not sell your information. We share it only with the services that run Anti-Timeout: Supabase
+        We do not sell your information. We share it only with the services that run AuraCut: Supabase
         (authentication and database), Paystack (payments), Vercel (hosting) and Google (sign-in), and where the law
         requires it.
       </p>

@@ -5,7 +5,7 @@ import { getViewer } from "@/lib/billing/account";
 import { formatDate } from "@/lib/billing/format";
 import { PLAN_LIMITS } from "@/lib/plans";
 
-export const metadata: Metadata = { title: "Account · Anti-Timeout" };
+export const metadata: Metadata = { title: "Account · AuraCut" };
 
 const ERRORS: Record<string, string> = {
   manage: "We couldn't open the subscription page. Please try again in a moment.",

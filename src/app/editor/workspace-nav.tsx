@@ -62,43 +62,40 @@ const TOOLS: Tool[] = [
  * The editor's workspace navigation: every tool in one place (a sidebar on
  * desktop, a chip bar on phones), what the plan includes, and the upgrade.
  */
-export function WorkspaceNav({ plan, hasVideos, totalBytes }: { plan: PlanId; hasVideos: boolean; totalBytes: number }) {
-  const [active, setActive] = useState("tool-start");
+export function WorkspaceNav({
+  plan,
+  hasVideos,
+  totalBytes,
+  active,
+  onSelect,
+}: {
+  plan: PlanId;
+  hasVideos: boolean;
+  totalBytes: number;
+  active?: string;
+  onSelect?: (id: string) => void;
+}) {
+  const [internalActive, setInternalActive] = useState("tool-start");
+  const currentActive = active ?? internalActive;
 
-  // Scroll-spy: the active tool is the section whose top most recently passed a third of the way down the screen.
   useEffect(() => {
-    let frame = 0;
-    const update = () => {
-      frame = 0;
-      const line = window.innerHeight / 3;
-      // Sections nest (Export holds Captions and Music), so pick the passed one nearest the line.
-      let current = "tool-start";
-      let nearest = -Infinity;
-      for (const t of TOOLS) {
-        const top = document.getElementById(t.id)?.getBoundingClientRect().top;
-        if (top !== undefined && top <= line && top > nearest) {
-          nearest = top;
-          current = t.id;
-        }
-      }
-      setActive(current);
+    const syncHash = () => {
+      const h = window.location.hash.replace(/^#/, "");
+      if (h) setInternalActive(h);
     };
-    const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(update);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (frame) cancelAnimationFrame(frame);
-    };
-  }, [hasVideos]);
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
 
   const go = (id: string) => {
     const target = hasVideos || id === "tool-start" ? id : "tool-start";
-    setActive(target);
-    const el = document.getElementById(target);
-    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setInternalActive(target);
+    if (onSelect) {
+      onSelect(target);
+    } else if (typeof window !== "undefined") {
+      window.history.pushState(null, "", `#${target}`);
+    }
   };
   const limits = PLAN_LIMITS[plan];
 
@@ -106,7 +103,7 @@ export function WorkspaceNav({ plan, hasVideos, totalBytes }: { plan: PlanId; ha
     const needs = t.needs?.(plan) ?? null;
     const note = t.note?.(plan) ?? null;
     const disabled = !hasVideos && t.id !== "tool-start";
-    const on = active === t.id;
+    const on = currentActive === t.id;
     return (
       <button
         key={t.id}

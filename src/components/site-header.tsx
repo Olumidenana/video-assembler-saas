@@ -12,7 +12,7 @@ export async function SiteHeader() {
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
         <HardLink href="/" className="flex items-center gap-2.5 font-semibold tracking-tight">
           <LogoMark />
-          <span className="hidden sm:inline">Anti-Timeout</span>
+          <span className="hidden sm:inline">AuraCut</span>
         </HardLink>
 
         <div className="flex items-center gap-1 sm:gap-2">

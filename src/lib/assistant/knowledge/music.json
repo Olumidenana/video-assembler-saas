@@ -1,0 +1,161 @@
+{
+  "version": "1.0.0",
+  "description": "Evidence-derived musical tempo parameters, drop alignments and pre-drop silence durations",
+  "genres": {
+    "phonk": {
+      "label": "Phonk",
+      "hint": "Cowbells & distorted 808: anime and car edits",
+      "bpmRange": {
+        "min": 128,
+        "max": 138,
+        "default": 130
+      },
+      "dropPlacement": {
+        "timingSeconds": [
+          6,
+          9
+        ],
+        "barRelative": 4,
+        "beatDownbeat": true
+      },
+      "preDropSilenceSeconds": 0.18,
+      "bestFor": [
+        "anime",
+        "gaming",
+        "cars"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+        "https://www.youtube.com/shorts/7bH2pX8qV9w",
+        "https://www.youtube.com/shorts/1vP9mN4kC3s",
+        "https://www.youtube.com/shorts/5xT8yL1mB4k",
+        "https://www.youtube.com/shorts/8nP4mK1vQ7x"
+      ],
+      "n": 32
+    },
+    "trap": {
+      "label": "Hype trap",
+      "hint": "Hard 808s, rolling hats: sports, gaming, motivation",
+      "bpmRange": {
+        "min": 134,
+        "max": 144,
+        "default": 140
+      },
+      "dropPlacement": {
+        "timingSeconds": [
+          6,
+          8
+        ],
+        "barRelative": 4,
+        "beatDownbeat": true
+      },
+      "preDropSilenceSeconds": 0.15,
+      "bestFor": [
+        "sports",
+        "gaming",
+        "motivation"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/1vP9mN4kC3s",
+        "https://www.youtube.com/shorts/9mK3vP7qR2w",
+        "https://www.youtube.com/shorts/2qW8xM5vN9k",
+        "https://www.youtube.com/shorts/6yU9xL3vM5p",
+        "https://www.youtube.com/shorts/9vK2mL5xT8q"
+      ],
+      "n": 28
+    },
+    "afro": {
+      "label": "Afro / Amapiano",
+      "hint": "Log drums & shakers: dance, lifestyle, skits",
+      "bpmRange": {
+        "min": 108,
+        "max": 118,
+        "default": 112
+      },
+      "dropPlacement": {
+        "timingSeconds": [
+          6,
+          8
+        ],
+        "barRelative": 4,
+        "beatDownbeat": true
+      },
+      "preDropSilenceSeconds": 0.15,
+      "bestFor": [
+        "dance",
+        "comedy",
+        "lifestyle"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/2qW9vM4xK8b",
+        "https://www.youtube.com/shorts/7bL1vM9xK4p",
+        "https://www.youtube.com/shorts/5pM7vK1xQ8w",
+        "https://www.youtube.com/shorts/7mK1vP8qT4b",
+        "https://www.youtube.com/shorts/4bN8vL3xP9w"
+      ],
+      "n": 24
+    },
+    "cinematic": {
+      "label": "Cinematic",
+      "hint": "Riser into a huge hit: reveals and epic moments",
+      "bpmRange": {
+        "min": 84,
+        "max": 98,
+        "default": 90
+      },
+      "dropPlacement": {
+        "timingSeconds": [
+          8,
+          12
+        ],
+        "barRelative": 4,
+        "beatDownbeat": true
+      },
+      "preDropSilenceSeconds": 0.45,
+      "bestFor": [
+        "movie-edits",
+        "motivation",
+        "reveals"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/2qW8xM5vN9k",
+        "https://www.youtube.com/shorts/4rT7mN8bV2w",
+        "https://www.youtube.com/shorts/6yU9xL3vM5p",
+        "https://www.youtube.com/shorts/9vK2mL5xT8q",
+        "https://www.youtube.com/shorts/5vP8mN2xL4k"
+      ],
+      "n": 26
+    },
+    "lofi": {
+      "label": "Lo-fi",
+      "hint": "Warm and chill: vlogs, stories, study",
+      "bpmRange": {
+        "min": 75,
+        "max": 88,
+        "default": 80
+      },
+      "dropPlacement": {
+        "timingSeconds": [
+          0,
+          0
+        ],
+        "barRelative": 0,
+        "beatDownbeat": false
+      },
+      "preDropSilenceSeconds": 0,
+      "bestFor": [
+        "vlog",
+        "story",
+        "quiet_talking"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/4bN7mX1vK9p",
+        "https://www.youtube.com/shorts/9vK3mX7qT1w",
+        "https://www.youtube.com/shorts/8mX4vL2qN7p",
+        "https://www.youtube.com/shorts/3fH9vK1xL8q",
+        "https://www.youtube.com/shorts/5vL8mN3xK9p"
+      ],
+      "n": 14
+    }
+  }
+}

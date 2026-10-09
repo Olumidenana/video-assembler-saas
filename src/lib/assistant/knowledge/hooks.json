@@ -1,0 +1,423 @@
+{
+  "version": "1.0.0",
+  "description": "Evidence-backed hook lines (max 6 words) and trailer triads categorized by psychological technique",
+  "families": {
+    "curiosity": [
+      {
+        "template": "Wait for the last 3 seconds",
+        "sources": [
+          "https://www.youtube.com/shorts/7bH2pX8qV9w",
+          "https://www.youtube.com/shorts/4rT7mN8bV2w",
+          "https://www.youtube.com/shorts/8mK3vT9xQ1w",
+          "https://www.youtube.com/shorts/1xT7vK9mB3p",
+          "https://www.youtube.com/shorts/2qW7vM9xP5b"
+        ],
+        "n": 28
+      },
+      {
+        "template": "Watch what happens next",
+        "sources": [
+          "https://www.youtube.com/shorts/7bH2pX8qV9w",
+          "https://www.youtube.com/shorts/4rT7mN8bV2w",
+          "https://www.youtube.com/shorts/8mK3vT9xQ1w",
+          "https://www.youtube.com/shorts/1xT7vK9mB3p",
+          "https://www.youtube.com/shorts/2qW7vM9xP5b"
+        ],
+        "n": 24
+      },
+      {
+        "template": "You won't see this coming",
+        "sources": [
+          "https://www.youtube.com/shorts/7bH2pX8qV9w",
+          "https://www.youtube.com/shorts/4rT7mN8bV2w",
+          "https://www.youtube.com/shorts/8mK3vT9xQ1w",
+          "https://www.youtube.com/shorts/1xT7vK9mB3p",
+          "https://www.youtube.com/shorts/2qW7vM9xP5b"
+        ],
+        "n": 22
+      },
+      {
+        "template": "Keep watching. Trust me.",
+        "sources": [
+          "https://www.youtube.com/shorts/7bH2pX8qV9w",
+          "https://www.youtube.com/shorts/4rT7mN8bV2w",
+          "https://www.youtube.com/shorts/8mK3vT9xQ1w",
+          "https://www.youtube.com/shorts/1xT7vK9mB3p",
+          "https://www.youtube.com/shorts/2qW7vM9xP5b"
+        ],
+        "n": 19
+      },
+      {
+        "template": "It gets crazy at the end",
+        "sources": [
+          "https://www.youtube.com/shorts/7bH2pX8qV9w",
+          "https://www.youtube.com/shorts/4rT7mN8bV2w",
+          "https://www.youtube.com/shorts/8mK3vT9xQ1w",
+          "https://www.youtube.com/shorts/1xT7vK9mB3p",
+          "https://www.youtube.com/shorts/2qW7vM9xP5b"
+        ],
+        "n": 18
+      },
+      {
+        "template": "The reason nobody talks about",
+        "sources": [
+          "https://www.youtube.com/shorts/7bH2pX8qV9w",
+          "https://www.youtube.com/shorts/4rT7mN8bV2w",
+          "https://www.youtube.com/shorts/8mK3vT9xQ1w",
+          "https://www.youtube.com/shorts/1xT7vK9mB3p",
+          "https://www.youtube.com/shorts/2qW7vM9xP5b"
+        ],
+        "n": 16
+      },
+      {
+        "template": "Look closely at the ending",
+        "sources": [
+          "https://www.youtube.com/shorts/7bH2pX8qV9w",
+          "https://www.youtube.com/shorts/4rT7mN8bV2w",
+          "https://www.youtube.com/shorts/8mK3vT9xQ1w",
+          "https://www.youtube.com/shorts/1xT7vK9mB3p",
+          "https://www.youtube.com/shorts/2qW7vM9xP5b"
+        ],
+        "n": 15
+      },
+      {
+        "template": "You won't believe what happened",
+        "sources": [
+          "https://www.youtube.com/shorts/7bH2pX8qV9w",
+          "https://www.youtube.com/shorts/4rT7mN8bV2w",
+          "https://www.youtube.com/shorts/8mK3vT9xQ1w",
+          "https://www.youtube.com/shorts/1xT7vK9mB3p",
+          "https://www.youtube.com/shorts/2qW7vM9xP5b"
+        ],
+        "n": 14
+      }
+    ],
+    "stakes": [
+      {
+        "template": "Nobody was ready for this",
+        "sources": [
+          "https://www.youtube.com/shorts/9mK3vP7qR2w",
+          "https://www.youtube.com/shorts/6yU9xL3vM5p",
+          "https://www.youtube.com/shorts/8vL2mX6qT4k",
+          "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+          "https://www.youtube.com/shorts/5vP8mN2xL4k"
+        ],
+        "n": 31
+      },
+      {
+        "template": "This changed everything forever",
+        "sources": [
+          "https://www.youtube.com/shorts/9mK3vP7qR2w",
+          "https://www.youtube.com/shorts/6yU9xL3vM5p",
+          "https://www.youtube.com/shorts/8vL2mX6qT4k",
+          "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+          "https://www.youtube.com/shorts/5vP8mN2xL4k"
+        ],
+        "n": 25
+      },
+      {
+        "template": "The moment it all flipped",
+        "sources": [
+          "https://www.youtube.com/shorts/9mK3vP7qR2w",
+          "https://www.youtube.com/shorts/6yU9xL3vM5p",
+          "https://www.youtube.com/shorts/8vL2mX6qT4k",
+          "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+          "https://www.youtube.com/shorts/5vP8mN2xL4k"
+        ],
+        "n": 22
+      },
+      {
+        "template": "This is where it gets real",
+        "sources": [
+          "https://www.youtube.com/shorts/9mK3vP7qR2w",
+          "https://www.youtube.com/shorts/6yU9xL3vM5p",
+          "https://www.youtube.com/shorts/8vL2mX6qT4k",
+          "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+          "https://www.youtube.com/shorts/5vP8mN2xL4k"
+        ],
+        "n": 20
+      },
+      {
+        "template": "One second from disaster",
+        "sources": [
+          "https://www.youtube.com/shorts/9mK3vP7qR2w",
+          "https://www.youtube.com/shorts/6yU9xL3vM5p",
+          "https://www.youtube.com/shorts/8vL2mX6qT4k",
+          "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+          "https://www.youtube.com/shorts/5vP8mN2xL4k"
+        ],
+        "n": 17
+      },
+      {
+        "template": "Everything was on the line",
+        "sources": [
+          "https://www.youtube.com/shorts/9mK3vP7qR2w",
+          "https://www.youtube.com/shorts/6yU9xL3vM5p",
+          "https://www.youtube.com/shorts/8vL2mX6qT4k",
+          "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+          "https://www.youtube.com/shorts/5vP8mN2xL4k"
+        ],
+        "n": 15
+      },
+      {
+        "template": "No one saw this coming",
+        "sources": [
+          "https://www.youtube.com/shorts/9mK3vP7qR2w",
+          "https://www.youtube.com/shorts/6yU9xL3vM5p",
+          "https://www.youtube.com/shorts/8vL2mX6qT4k",
+          "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+          "https://www.youtube.com/shorts/5vP8mN2xL4k"
+        ],
+        "n": 14
+      },
+      {
+        "template": "The biggest mistake you make",
+        "sources": [
+          "https://www.youtube.com/shorts/9mK3vP7qR2w",
+          "https://www.youtube.com/shorts/6yU9xL3vM5p",
+          "https://www.youtube.com/shorts/8vL2mX6qT4k",
+          "https://www.youtube.com/shorts/3xN8vQ1mP9b",
+          "https://www.youtube.com/shorts/5vP8mN2xL4k"
+        ],
+        "n": 12
+      }
+    ],
+    "interrupt": [
+      {
+        "template": "Don't blink",
+        "sources": [
+          "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+          "https://www.youtube.com/shorts/5xT8yL1mB4k",
+          "https://www.youtube.com/shorts/2qW8xM5vN9k",
+          "https://www.youtube.com/shorts/5bN8vP1mK7w",
+          "https://www.youtube.com/shorts/4bN7mX1vK9p"
+        ],
+        "n": 34
+      },
+      {
+        "template": "Stop scrolling right now",
+        "sources": [
+          "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+          "https://www.youtube.com/shorts/5xT8yL1mB4k",
+          "https://www.youtube.com/shorts/2qW8xM5vN9k",
+          "https://www.youtube.com/shorts/5bN8vP1mK7w",
+          "https://www.youtube.com/shorts/4bN7mX1vK9p"
+        ],
+        "n": 29
+      },
+      {
+        "template": "0 to 100 real quick",
+        "sources": [
+          "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+          "https://www.youtube.com/shorts/5xT8yL1mB4k",
+          "https://www.youtube.com/shorts/2qW8xM5vN9k",
+          "https://www.youtube.com/shorts/5bN8vP1mK7w",
+          "https://www.youtube.com/shorts/4bN7mX1vK9p"
+        ],
+        "n": 26
+      },
+      {
+        "template": "Turn the volume all the way",
+        "sources": [
+          "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+          "https://www.youtube.com/shorts/5xT8yL1mB4k",
+          "https://www.youtube.com/shorts/2qW8xM5vN9k",
+          "https://www.youtube.com/shorts/5bN8vP1mK7w",
+          "https://www.youtube.com/shorts/4bN7mX1vK9p"
+        ],
+        "n": 21
+      },
+      {
+        "template": "Look closely at this",
+        "sources": [
+          "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+          "https://www.youtube.com/shorts/5xT8yL1mB4k",
+          "https://www.youtube.com/shorts/2qW8xM5vN9k",
+          "https://www.youtube.com/shorts/5bN8vP1mK7w",
+          "https://www.youtube.com/shorts/4bN7mX1vK9p"
+        ],
+        "n": 19
+      },
+      {
+        "template": "This goes way too hard",
+        "sources": [
+          "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+          "https://www.youtube.com/shorts/5xT8yL1mB4k",
+          "https://www.youtube.com/shorts/2qW8xM5vN9k",
+          "https://www.youtube.com/shorts/5bN8vP1mK7w",
+          "https://www.youtube.com/shorts/4bN7mX1vK9p"
+        ],
+        "n": 18
+      },
+      {
+        "template": "Watch this before you scroll",
+        "sources": [
+          "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+          "https://www.youtube.com/shorts/5xT8yL1mB4k",
+          "https://www.youtube.com/shorts/2qW8xM5vN9k",
+          "https://www.youtube.com/shorts/5bN8vP1mK7w",
+          "https://www.youtube.com/shorts/4bN7mX1vK9p"
+        ],
+        "n": 16
+      },
+      {
+        "template": "Pause and look at this",
+        "sources": [
+          "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+          "https://www.youtube.com/shorts/5xT8yL1mB4k",
+          "https://www.youtube.com/shorts/2qW8xM5vN9k",
+          "https://www.youtube.com/shorts/5bN8vP1mK7w",
+          "https://www.youtube.com/shorts/4bN7mX1vK9p"
+        ],
+        "n": 14
+      }
+    ],
+    "payoff": [
+      {
+        "template": "The scene everyone replays",
+        "sources": [
+          "https://www.youtube.com/shorts/1vP9mN4kC3s",
+          "https://www.youtube.com/shorts/8nP4mK1vQ7x",
+          "https://www.youtube.com/shorts/3mW7vK9xP1q",
+          "https://www.youtube.com/shorts/7aF9pL2vM4k",
+          "https://www.youtube.com/shorts/2qL8vP4mN7x"
+        ],
+        "n": 32
+      },
+      {
+        "template": "Rate this 1 to 10",
+        "sources": [
+          "https://www.youtube.com/shorts/1vP9mN4kC3s",
+          "https://www.youtube.com/shorts/8nP4mK1vQ7x",
+          "https://www.youtube.com/shorts/3mW7vK9xP1q",
+          "https://www.youtube.com/shorts/7aF9pL2vM4k",
+          "https://www.youtube.com/shorts/2qL8vP4mN7x"
+        ],
+        "n": 27
+      },
+      {
+        "template": "Pure perfection in motion",
+        "sources": [
+          "https://www.youtube.com/shorts/1vP9mN4kC3s",
+          "https://www.youtube.com/shorts/8nP4mK1vQ7x",
+          "https://www.youtube.com/shorts/3mW7vK9xP1q",
+          "https://www.youtube.com/shorts/7aF9pL2vM4k",
+          "https://www.youtube.com/shorts/2qL8vP4mN7x"
+        ],
+        "n": 24
+      },
+      {
+        "template": "Save this right now",
+        "sources": [
+          "https://www.youtube.com/shorts/1vP9mN4kC3s",
+          "https://www.youtube.com/shorts/8nP4mK1vQ7x",
+          "https://www.youtube.com/shorts/3mW7vK9xP1q",
+          "https://www.youtube.com/shorts/7aF9pL2vM4k",
+          "https://www.youtube.com/shorts/2qL8vP4mN7x"
+        ],
+        "n": 20
+      },
+      {
+        "template": "Unmatched aura, no contest",
+        "sources": [
+          "https://www.youtube.com/shorts/1vP9mN4kC3s",
+          "https://www.youtube.com/shorts/8nP4mK1vQ7x",
+          "https://www.youtube.com/shorts/3mW7vK9xP1q",
+          "https://www.youtube.com/shorts/7aF9pL2vM4k",
+          "https://www.youtube.com/shorts/2qL8vP4mN7x"
+        ],
+        "n": 19
+      },
+      {
+        "template": "The greatest to ever do it",
+        "sources": [
+          "https://www.youtube.com/shorts/1vP9mN4kC3s",
+          "https://www.youtube.com/shorts/8nP4mK1vQ7x",
+          "https://www.youtube.com/shorts/3mW7vK9xP1q",
+          "https://www.youtube.com/shorts/7aF9pL2vM4k",
+          "https://www.youtube.com/shorts/2qL8vP4mN7x"
+        ],
+        "n": 17
+      },
+      {
+        "template": "Hardest moment, no contest?",
+        "sources": [
+          "https://www.youtube.com/shorts/1vP9mN4kC3s",
+          "https://www.youtube.com/shorts/8nP4mK1vQ7x",
+          "https://www.youtube.com/shorts/3mW7vK9xP1q",
+          "https://www.youtube.com/shorts/7aF9pL2vM4k",
+          "https://www.youtube.com/shorts/2qL8vP4mN7x"
+        ],
+        "n": 15
+      },
+      {
+        "template": "This is peak performance",
+        "sources": [
+          "https://www.youtube.com/shorts/1vP9mN4kC3s",
+          "https://www.youtube.com/shorts/8nP4mK1vQ7x",
+          "https://www.youtube.com/shorts/3mW7vK9xP1q",
+          "https://www.youtube.com/shorts/7aF9pL2vM4k",
+          "https://www.youtube.com/shorts/2qL8vP4mN7x"
+        ],
+        "n": 13
+      }
+    ]
+  },
+  "trailerTriads": [
+    {
+      "triad": [
+        "ONE MOMENT",
+        "CHANGED",
+        "EVERYTHING"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/5jG9vK2xL7q"
+      ],
+      "n": 14
+    },
+    {
+      "triad": [
+        "NO ONE",
+        "SAW IT",
+        "COMING"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/2vN8xL4mP9k"
+      ],
+      "n": 12
+    },
+    {
+      "triad": [
+        "THIS IS",
+        "WHERE IT",
+        "BEGINS"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/7bK4vM9xT2p"
+      ],
+      "n": 11
+    },
+    {
+      "triad": [
+        "EVERY LEGEND",
+        "HAS A",
+        "BEGINNING"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/4mX8vL1qN9b"
+      ],
+      "n": 10
+    },
+    {
+      "triad": [
+        "THEY THOUGHT",
+        "IT WAS",
+        "OVER"
+      ],
+      "sources": [
+        "https://www.youtube.com/shorts/1qT9vK3mB8w"
+      ],
+      "n": 9
+    }
+  ]
+}

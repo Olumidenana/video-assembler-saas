@@ -47,18 +47,23 @@ interface Props {
   onLogo: (file: File | null) => void;
   ownTrack: OwnTrack | null;
   onOwnTrack: (file: File | null) => void;
+  activeTab?: string;
 }
 
-export function ExportSettingsPanel({ settings, onChange, limits, disabled, logoUrl, onLogo, ownTrack, onOwnTrack }: Props) {
+export function ExportSettingsPanel({ settings, onChange, limits, disabled, logoUrl, onLogo, ownTrack, onOwnTrack, activeTab }: Props) {
   const set = (patch: Partial<ExportSettings>) => onChange({ ...settings, ...patch });
   const chip = (active: boolean) =>
     `rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-40 ${
       active ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong"
     }`;
 
+  const showBrand = !activeTab || activeTab === "export" || activeTab === "tool-brand";
+  const showCaptions = !activeTab || activeTab === "export" || activeTab === "tool-captions";
+  const showMusic = !activeTab || activeTab === "export" || activeTab === "tool-music";
+
   return (
     <fieldset className="flex flex-col gap-5" disabled={disabled} data-testid="export-settings">
-      <div id="tool-brand" className="flex scroll-mt-32 flex-col gap-2">
+      <div id="tool-brand" className={showBrand ? "flex scroll-mt-32 flex-col gap-2" : "hidden"}>
         <legend className="text-sm font-medium">Format</legend>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {ASPECTS.map((a) => (
@@ -86,7 +91,7 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         )}
       </div>
 
-      <div id="tool-captions" className="flex scroll-mt-32 flex-col gap-2">
+      <div id="tool-captions" className={showCaptions ? "flex scroll-mt-32 flex-col gap-2" : "hidden"}>
         <label className="flex items-center gap-3 text-sm font-medium">
           <input type="checkbox" checked={settings.captions} onChange={(e) => set({ captions: e.target.checked })} className="accent-brand" />
           Auto-captions
@@ -122,7 +127,7 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         )}
       </div>
 
-      <div className="flex flex-col gap-2" data-testid="boosters">
+      <div className={showBrand ? "flex flex-col gap-2" : "hidden"} data-testid="boosters">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="text-sm font-medium">Retention boosters</span>
           <span className="text-xs text-muted">Tricks that keep people watching past the first seconds.</span>
@@ -153,11 +158,11 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         </label>
       </div>
 
-      <div id="tool-music" className="scroll-mt-32">
+      <div id="tool-music" className={showMusic ? "scroll-mt-32" : "hidden"}>
         <MusicControls music={settings.music} onChange={(music) => set({ music })} ownTrack={ownTrack} onOwnTrack={onOwnTrack} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-sm">
+      <div className={showBrand ? "flex flex-wrap items-center gap-3 text-sm" : "hidden"}>
         {limits.brandLogo ? (
           <>
             <span className="font-medium">Your logo</span>
@@ -185,7 +190,7 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
         )}
         {limits.watermark && (
           <span className="text-muted">
-            · Free exports include a small &quot;Made with Anti-Timeout&quot; mark.{" "}
+            · Free exports include a small &quot;Made with AuraCut&quot; mark.{" "}
             <HardLink href="/pricing" className="text-brand hover:underline">
               Remove it
             </HardLink>

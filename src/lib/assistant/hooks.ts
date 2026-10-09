@@ -6,39 +6,16 @@
  * the footage (who is in it, what is said), so they stay honest for any video;
  * AI Vision writes specific ones when it can see the clip.
  */
+import hooksData from "./knowledge/hooks.json";
 import type { ViralClip } from "./viral";
 
 export type HookFamily = "curiosity" | "stakes" | "interrupt" | "payoff";
 
 export const HOOK_LIBRARY: Record<HookFamily, string[]> = {
-  curiosity: [
-    "Wait for the last 3 seconds",
-    "Watch the ending closely",
-    "Keep watching. Trust me.",
-    "You won't see it coming",
-    "It gets better at the end",
-  ],
-  stakes: [
-    "Nobody was ready for this",
-    "This changed everything",
-    "The moment it all flipped",
-    "This is where it gets real",
-    "No one saw this coming",
-  ],
-  interrupt: [
-    "Stop scrolling. Watch this.",
-    "Don't blink",
-    "0 to 100 in seconds",
-    "Turn the sound up for this",
-    "This goes hard",
-  ],
-  payoff: [
-    "The scene everyone replays",
-    "Rate this 1 to 10",
-    "This is peak",
-    "Save this one",
-    "Hardest moment, no contest?",
-  ],
+  curiosity: hooksData.families.curiosity.map((h) => h.template),
+  stakes: hooksData.families.stakes.map((h) => h.template),
+  interrupt: hooksData.families.interrupt.map((h) => h.template),
+  payoff: hooksData.families.payoff.map((h) => h.template),
 };
 
 /** Which technique fits a clip, from its measured shape. */

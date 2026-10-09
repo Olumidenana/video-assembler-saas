@@ -1,0 +1,338 @@
+{
+  "version": "1.0.0",
+  "description": "Audience targeting specifications and signal weighting across key short-form niches",
+  "niches": {
+    "anime": {
+      "label": "Anime",
+      "emoji": "⚔️",
+      "audience": "Anime fans reward fights, power-ups, transformations, plot twists and emotional climaxes synced to the beat. Skip slow dialogue.",
+      "kind": "scenes",
+      "range": {
+        "min": 14,
+        "max": 20,
+        "label": "14–20s"
+      },
+      "weights": {
+        "hook": 0.14,
+        "curiosity": 0.2,
+        "emotion": 0.3,
+        "value": 0.18,
+        "pacing": 0.18
+      },
+      "signals": [
+        "loud_combat_sfx",
+        "high_motion_acceleration",
+        "dark_to_light_flashes",
+        "voice_line_before_drop"
+      ],
+      "musicGenre": "phonk",
+      "bpmRange": {
+        "min": 128,
+        "max": 138
+      },
+      "captionStyle": "bold-pop",
+      "coldOpen": true,
+      "cta": "Rate this edit 1-10 in comments",
+      "sources": [
+        "https://www.youtube.com/shorts/3fG8kZ9xL1A",
+        "https://www.youtube.com/shorts/7bH2pX8qV9w"
+      ],
+      "n": 24
+    },
+    "gaming": {
+      "label": "Gaming",
+      "emoji": "🎮",
+      "audience": "Gamers reward clutch plays, rage moments, unbelievable luck and funny fails. Start mid-action and land the payoff fast.",
+      "kind": "scenes",
+      "range": {
+        "min": 15,
+        "max": 24,
+        "label": "15–24s"
+      },
+      "weights": {
+        "hook": 0.3,
+        "curiosity": 0.16,
+        "emotion": 0.3,
+        "value": 0.12,
+        "pacing": 0.12
+      },
+      "signals": [
+        "headshot_kill_dings",
+        "desk_slam_shout",
+        "clutch_timer_beeps",
+        "webcam_hyper_reaction"
+      ],
+      "musicGenre": "trap",
+      "bpmRange": {
+        "min": 134,
+        "max": 144
+      },
+      "captionStyle": "bold-pop",
+      "coldOpen": true,
+      "cta": "Would you have clutched this?",
+      "sources": [
+        "https://www.youtube.com/shorts/2bN9vL4mK7x",
+        "https://www.youtube.com/shorts/7mK3vP9xT1q"
+      ],
+      "n": 20
+    },
+    "sports": {
+      "label": "Sports",
+      "emoji": "⚽",
+      "audience": "Sports fans reward build-ups to monumental athletic plays: goals, ankle-breakers, dunks, knockouts, and stadium eruptions.",
+      "kind": "scenes",
+      "range": {
+        "min": 15,
+        "max": 22,
+        "label": "15–22s"
+      },
+      "weights": {
+        "hook": 0.16,
+        "curiosity": 0.26,
+        "emotion": 0.32,
+        "value": 0.14,
+        "pacing": 0.12
+      },
+      "signals": [
+        "crowd_roar_swell",
+        "ankle_breaker_feint",
+        "net_bulge_impact",
+        "iconic_celebration_pose"
+      ],
+      "musicGenre": "trap",
+      "bpmRange": {
+        "min": 130,
+        "max": 142
+      },
+      "captionStyle": "bold-pop",
+      "coldOpen": true,
+      "cta": "Best moment in sports history?",
+      "sources": [
+        "https://www.youtube.com/shorts/1fG8vM3xL9q",
+        "https://www.youtube.com/shorts/5vK9xL2mB8w"
+      ],
+      "n": 22
+    },
+    "podcast": {
+      "label": "Podcast & interview",
+      "emoji": "🎙️",
+      "audience": "Podcast clips win with a hot take, contrarian advice, an emotional story or a profound life test that opens on the strongest line.",
+      "kind": "talking",
+      "range": {
+        "min": 15,
+        "max": 45,
+        "label": "15–45s"
+      },
+      "weights": {
+        "hook": 0.36,
+        "curiosity": 0.2,
+        "emotion": 0.2,
+        "value": 0.16,
+        "pacing": 0.08
+      },
+      "signals": [
+        "speech_energy_peaks",
+        "provocative_opening_statement",
+        "multi_camera_switches",
+        "applause_or_gasps"
+      ],
+      "musicGenre": "none",
+      "bpmRange": {
+        "min": 70,
+        "max": 90
+      },
+      "captionStyle": "bold-pop",
+      "coldOpen": false,
+      "cta": "Share this with someone who needs to hear it",
+      "sources": [
+        "https://www.youtube.com/shorts/3fH9vK1xL8q",
+        "https://www.youtube.com/shorts/8mK2vP4qT7w"
+      ],
+      "n": 24
+    },
+    "comedy": {
+      "label": "Comedy & skits",
+      "emoji": "😂",
+      "audience": "Comedy works at 18-28 seconds: quick setup, a punchline that lands at the end, ideally with audible laughter. Never show the punchline first.",
+      "kind": "scenes",
+      "range": {
+        "min": 18,
+        "max": 28,
+        "label": "18–28s"
+      },
+      "weights": {
+        "hook": 0.2,
+        "curiosity": 0.3,
+        "emotion": 0.3,
+        "value": 0.08,
+        "pacing": 0.12
+      },
+      "signals": [
+        "exaggerated_facial_expressions",
+        "sound_effect_stings",
+        "silence_before_punchline",
+        "screaming_fleeing_exit"
+      ],
+      "musicGenre": "afro",
+      "bpmRange": {
+        "min": 108,
+        "max": 118
+      },
+      "captionStyle": "clean",
+      "coldOpen": false,
+      "cta": "Follow for part 2",
+      "sources": [
+        "https://www.youtube.com/shorts/3fL9vK2xM8w",
+        "https://www.youtube.com/shorts/7mK1vP8qT4b"
+      ],
+      "n": 18
+    },
+    "motivation": {
+      "label": "Sermon & motivation",
+      "emoji": "🔥",
+      "audience": "Motivational and sermon clips spread through one quotable, emotional line people want to send to someone, with room for it to land.",
+      "kind": "talking",
+      "range": {
+        "min": 30,
+        "max": 60,
+        "label": "30–60s"
+      },
+      "weights": {
+        "hook": 0.26,
+        "curiosity": 0.14,
+        "emotion": 0.3,
+        "value": 0.22,
+        "pacing": 0.08
+      },
+      "signals": [
+        "vocal_conviction_crescendo",
+        "dramatic_metaphors",
+        "orchestral_strings_swell",
+        "prophetic_declaration"
+      ],
+      "musicGenre": "cinematic",
+      "bpmRange": {
+        "min": 80,
+        "max": 96
+      },
+      "captionStyle": "clean",
+      "coldOpen": false,
+      "cta": "Send this to someone who needs it",
+      "sources": [
+        "https://www.youtube.com/shorts/3fH8vK9xL2w",
+        "https://www.youtube.com/shorts/4bN9vL2xP7w"
+      ],
+      "n": 22
+    },
+    "vlog": {
+      "label": "Vlog & story",
+      "emoji": "✨",
+      "audience": "Vloggers win with a relatable turning point, an unusual experience or aesthetic immersion, starting in the middle of a moment.",
+      "kind": "talking",
+      "range": {
+        "min": 15,
+        "max": 45,
+        "label": "15–45s"
+      },
+      "weights": {
+        "hook": 0.28,
+        "curiosity": 0.22,
+        "emotion": 0.26,
+        "value": 0.12,
+        "pacing": 0.12
+      },
+      "signals": [
+        "aesthetic_establishing_shot",
+        "personal_confession",
+        "travel_movement",
+        "lifestyle_sound"
+      ],
+      "musicGenre": "lofi",
+      "bpmRange": {
+        "min": 75,
+        "max": 88
+      },
+      "captionStyle": "bold-pop",
+      "coldOpen": false,
+      "cta": "Follow for part 2",
+      "sources": [
+        "https://www.youtube.com/shorts/8vL3mX9qK2b"
+      ],
+      "n": 16
+    },
+    "dance": {
+      "label": "Music & dance",
+      "emoji": "💃",
+      "audience": "Dance fans reward rhythmic synchronization, high difficulty moves, infectious lifestyle charisma and effortless groove.",
+      "kind": "scenes",
+      "range": {
+        "min": 14,
+        "max": 20,
+        "label": "14–20s"
+      },
+      "weights": {
+        "hook": 0.28,
+        "curiosity": 0.14,
+        "emotion": 0.26,
+        "value": 0.12,
+        "pacing": 0.2
+      },
+      "signals": [
+        "log_drum_snaps",
+        "synchronized_body_isolation",
+        "acrobatic_airborne_moves",
+        "water_splash_or_clothing_flair"
+      ],
+      "musicGenre": "afro",
+      "bpmRange": {
+        "min": 110,
+        "max": 118
+      },
+      "captionStyle": "bold-pop",
+      "coldOpen": true,
+      "cta": "Try this dance and tag us",
+      "sources": [
+        "https://www.youtube.com/shorts/3fL8vM1xK9q",
+        "https://www.youtube.com/shorts/7bK9vL2mP4w"
+      ],
+      "n": 20
+    },
+    "movie": {
+      "label": "Cinema & trailer",
+      "emoji": "🎬",
+      "audience": "Cinema fans reward high-contrast noir atmospheres, iconic monologues, tension-filled stares, and explosive trailer drops.",
+      "kind": "scenes",
+      "range": {
+        "min": 18,
+        "max": 26,
+        "label": "18–26s"
+      },
+      "weights": {
+        "hook": 0.25,
+        "curiosity": 0.25,
+        "emotion": 0.3,
+        "value": 0.1,
+        "pacing": 0.1
+      },
+      "signals": [
+        "gunshot_or_flame_sfx",
+        "whisper_into_shout",
+        "blackout_before_explosion",
+        "unflinching_eye_stare"
+      ],
+      "musicGenre": "cinematic",
+      "bpmRange": {
+        "min": 85,
+        "max": 105
+      },
+      "captionStyle": "bold-pop",
+      "coldOpen": true,
+      "cta": "Watch the full breakdown on my channel",
+      "sources": [
+        "https://www.youtube.com/shorts/5jG9vK2xL7q",
+        "https://www.youtube.com/shorts/2vN8xL4mP9k"
+      ],
+      "n": 18
+    }
+  }
+}

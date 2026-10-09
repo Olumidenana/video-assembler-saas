@@ -8,8 +8,8 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "Anti-Timeout · AI video editor",
-    short_name: "Anti-Timeout",
+    name: "AuraCut · AI video editor",
+    short_name: "AuraCut",
     description: "Turn long videos into viral shorts: AI picks the best moments, captions, music and beat-synced edits, right on your phone.",
     start_url: "/editor",
     scope: "/",

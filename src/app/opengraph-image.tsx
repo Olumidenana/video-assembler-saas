@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "Anti-Timeout: AI video editor that cuts the best parts, right in your browser";
+export const alt = "AuraCut: AI video editor that cuts the best parts, right in your browser";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -40,7 +40,7 @@ export default function OpengraphImage() {
               display: "flex",
             }}
           />
-          Anti-Timeout
+          AuraCut
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div style={{ fontSize: 72, fontWeight: 700, lineHeight: 1.05, letterSpacing: -2, display: "flex", flexDirection: "column" }}>

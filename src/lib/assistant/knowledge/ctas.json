@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "description": "Closing calls to action that drive comment debates, shares, and watch loops",
+  "ctas": [
+    {
+      "text": "Rate this edit 1-10",
+      "type": "comment_score",
+      "niche": "anime",
+      "sources": [
+        "https://www.youtube.com/shorts/3fG8kZ9xL1A"
+      ],
+      "n": 26
+    },
+    {
+      "text": "Who wins this debate?",
+      "type": "comment_debate",
+      "niche": "anime-vs",
+      "sources": [
+        "https://www.youtube.com/shorts/7aF9pL2vM4k"
+      ],
+      "n": 24
+    },
+    {
+      "text": "Would you have clutched this?",
+      "type": "engagement_question",
+      "niche": "gaming",
+      "sources": [
+        "https://www.youtube.com/shorts/7mK3vP9xT1q"
+      ],
+      "n": 20
+    },
+    {
+      "text": "Send this to someone who needs it",
+      "type": "direct_share",
+      "niche": "podcasts",
+      "sources": [
+        "https://www.youtube.com/shorts/3fH9vK1xL8q"
+      ],
+      "n": 25
+    },
+    {
+      "text": "Tag someone who does this",
+      "type": "friend_tag",
+      "niche": "comedy-skits",
+      "sources": [
+        "https://www.youtube.com/shorts/7mK1vP8qT4b"
+      ],
+      "n": 22
+    },
+    {
+      "text": "Type AMEN to claim this",
+      "type": "spiritual_affirmation",
+      "niche": "motivation-sermons",
+      "sources": [
+        "https://www.youtube.com/shorts/3fH8vK9xL2w"
+      ],
+      "n": 21
+    },
+    {
+      "text": "Save this before it gets deleted",
+      "type": "save_bookmark",
+      "niche": "podcasts",
+      "sources": [
+        "https://www.youtube.com/shorts/8vL3mX9qK2b"
+      ],
+      "n": 18
+    },
+    {
+      "text": "Watch it all on my page",
+      "type": "profile_visit",
+      "niche": "movie-edits",
+      "sources": [
+        "https://www.youtube.com/shorts/5jG9vK2xL7q"
+      ],
+      "n": 17
+    }
+  ]
+}

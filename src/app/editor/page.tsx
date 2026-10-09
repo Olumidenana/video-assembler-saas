@@ -4,7 +4,7 @@ import { getViewer } from "@/lib/billing/account";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { EditorLoader } from "./editor-loader";
 
-export const metadata: Metadata = { title: "Editor · Anti-Timeout" };
+export const metadata: Metadata = { title: "Editor · AuraCut" };
 
 export default async function EditorPage({ searchParams }: PageProps<"/editor">) {
   const [{ plan }, params] = await Promise.all([getViewer(), searchParams]);

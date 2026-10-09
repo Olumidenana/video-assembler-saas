@@ -7,7 +7,7 @@ import { getPlan, type PaystackPlan } from "@/lib/billing/paystack";
 import { PLAN_LIMITS, PLAN_RANK, type PaidPlanId } from "@/lib/plans";
 import { CheckoutButton } from "./checkout-button";
 
-export const metadata: Metadata = { title: "Pricing · Anti-Timeout" };
+export const metadata: Metadata = { title: "Pricing · AuraCut" };
 
 const FREE = [
   `Stitch up to ${PLAN_LIMITS.free.maxStitchClips} videos together`,
