@@ -35,6 +35,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   poweredByHeader: false,
   env: { NEXT_PUBLIC_SHOWCASE_VIDEOS: showcaseVideos },
   async headers() {
