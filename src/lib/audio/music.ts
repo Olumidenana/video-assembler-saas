@@ -512,8 +512,53 @@ export function encodeWav(channels: Float32Array[], sampleRate: number): Uint8Ar
   return bytes;
 }
 
-/** Composes and renders a track as WAV bytes. Browser only. */
+/** Attempts to load and loop the pre-rendered studio track for the given duration. */
+async function renderStudioTrack(style: MusicStyle, duration: number): Promise<AudioBuffer | null> {
+  if (typeof window === "undefined" || typeof fetch === "undefined") return null;
+  try {
+    const res = await fetch(`/audio/music/${style}.wav`);
+    if (!res.ok) return null;
+    const ab = await res.arrayBuffer();
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return null;
+    const tempCtx = new AudioCtx();
+    const decoded = await tempCtx.decodeAudioData(ab);
+    void tempCtx.close();
+
+    const sr = decoded.sampleRate || 48000;
+    const frames = Math.max(1, Math.round(duration * sr));
+    const OfflineCtx = window.OfflineAudioContext || (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+    if (!OfflineCtx) return null;
+    const offline = new OfflineCtx(2, frames, sr);
+
+    const src = offline.createBufferSource();
+    src.buffer = decoded;
+    src.loop = true;
+
+    const gain = offline.createGain();
+    gain.gain.setValueAtTime(1, 0);
+    const fadeDur = Math.min(1.2, duration * 0.25);
+    gain.gain.setValueAtTime(1, Math.max(0, duration - fadeDur));
+    gain.gain.linearRampToValueAtTime(0, duration);
+
+    src.connect(gain).connect(offline.destination);
+    src.start(0);
+    return await offline.startRendering();
+  } catch {
+    return null;
+  }
+}
+
+/** Composes and renders a track as WAV bytes. Uses high-production studio assets if available, fallback to procedural synthesis. */
 export async function composeWav(style: MusicStyle, duration: number, dropAt: number, seed = 1, pause?: number): Promise<Uint8Array> {
+  try {
+    const studioBuffer = await renderStudioTrack(style, duration);
+    if (studioBuffer) {
+      return encodeWav([studioBuffer.getChannelData(0), studioBuffer.getChannelData(1)], studioBuffer.sampleRate);
+    }
+  } catch {
+    // Seamless fallback to procedural Web Audio synthesis
+  }
   const buffer = await renderTrack(planTrack(style, duration, dropAt, seed, pause));
   return encodeWav([buffer.getChannelData(0), buffer.getChannelData(1)], buffer.sampleRate);
 }

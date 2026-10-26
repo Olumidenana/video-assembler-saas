@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MUSIC_STYLES, type MusicStyle, planTrack, renderTrack } from "@/lib/audio/music";
+import { SOUND_EFFECTS, type SoundEffect } from "@/lib/audio/sfx";
 
 export interface MusicSettings {
   /** A composed style, the user's own track, or no music. */
@@ -44,12 +45,15 @@ export function MusicControls({
   const audio = useRef<{ ctx: AudioContext; src: AudioBufferSourceNode } | null>(null);
   const [playing, setPlaying] = useState<MusicStyle | null>(null);
   const [loading, setLoading] = useState<MusicStyle | null>(null);
+  const [playingSfx, setPlayingSfx] = useState<string | null>(null);
+  const [loadingSfx, setLoadingSfx] = useState<string | null>(null);
 
   const stop = () => {
     audio.current?.src.stop();
     void audio.current?.ctx.close();
     audio.current = null;
     setPlaying(null);
+    setPlayingSfx(null);
   };
   useEffect(() => () => stop(), []);
 
@@ -58,7 +62,23 @@ export function MusicControls({
     stop();
     setLoading(style);
     try {
-      const buffer = await renderTrack(planTrack(style, PREVIEW_SECONDS, PREVIEW_DROP, 3));
+      let buffer: AudioBuffer | null = null;
+      if (typeof window !== "undefined") {
+        try {
+          const res = await fetch(`/audio/music/${style}.wav`);
+          if (res.ok) {
+            const ab = await res.arrayBuffer();
+            const ctx = new AudioContext();
+            buffer = await ctx.decodeAudioData(ab);
+            void ctx.close();
+          }
+        } catch {
+          // fallback to procedural
+        }
+      }
+      if (!buffer) {
+        buffer = await renderTrack(planTrack(style, PREVIEW_SECONDS, PREVIEW_DROP, 3));
+      }
       const ctx = new AudioContext();
       const src = ctx.createBufferSource();
       src.buffer = buffer;
@@ -73,6 +93,34 @@ export function MusicControls({
       setPlaying(style);
     } finally {
       setLoading(null);
+    }
+  }
+
+  async function previewSfx(sfx: SoundEffect) {
+    if (playingSfx === sfx.id) return stop();
+    stop();
+    setLoadingSfx(sfx.id);
+    try {
+      const res = await fetch(sfx.file);
+      if (!res.ok) throw new Error("Could not load sound effect");
+      const ab = await res.arrayBuffer();
+      const ctx = new AudioContext();
+      const buffer = await ctx.decodeAudioData(ab);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const gain = ctx.createGain();
+      gain.gain.value = Math.min(1, music.volume * 1.2);
+      src.connect(gain).connect(ctx.destination);
+      src.onended = () => {
+        if (audio.current?.src === src) stop();
+      };
+      src.start();
+      audio.current = { ctx, src };
+      setPlayingSfx(sfx.id);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingSfx(null);
     }
   }
 
@@ -145,6 +193,36 @@ export function MusicControls({
           Only use music you have the rights to. For trending sounds, add them inside TikTok or Instagram after uploading, where they&apos;re licensed.
         </p>
       )}
+
+      <div className="flex flex-col gap-2 pt-2 border-t border-line/60">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="text-sm font-medium">Sound Effects</span>
+          <span className="text-xs text-muted">Viral sound effects for beat drops, transitions, and endings.</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {SOUND_EFFECTS.map((s) => (
+            <div key={s.id} className="relative rounded-lg border border-line bg-surface-2/40 p-2.5 hover:border-line-strong transition-colors">
+              <div className="pr-8">
+                <div className="flex items-center gap-1.5">
+                  <span className="block font-medium text-xs truncate">{s.label}</span>
+                  {s.badge && (
+                    <span className="rounded bg-brand/20 px-1 py-0.5 text-[9px] font-semibold text-brand">{s.badge}</span>
+                  )}
+                </div>
+                <span className="block text-[11px] text-muted truncate">{s.hint}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void previewSfx(s)}
+                className="absolute right-2 top-2.5 grid size-6 place-items-center rounded-full bg-surface-3 text-xs hover:bg-brand hover:text-white transition-colors"
+                aria-label={playingSfx === s.id ? `Stop ${s.label} preview` : `Preview ${s.label}`}
+              >
+                {loadingSfx === s.id ? "…" : playingSfx === s.id ? "■" : "▶"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

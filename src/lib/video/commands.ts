@@ -125,6 +125,8 @@ export const OVERLAY_FILES = {
   logo: "/overlay-logo.png",
   captions: "/captions.ass",
   music: "/music",
+  stingerLogo: "/stinger-logo.png",
+  stingerAudio: "/auracut-stinger.wav",
 };
 
 export interface Overlays {
@@ -143,6 +145,8 @@ export interface Overlays {
   normalize?: boolean;
   /** Seconds of end card: the last frame holds, dims, and the sound plays out under the call to action. */
   endCard?: number;
+  /** AuraCut signature 1.5s outro stinger with 808 bass explosion and logo reveal (CapCut-style ending). */
+  outroStinger?: boolean;
   /** A piece that will be re-encoded again (chunked transitions): higher quality, lossless sound, Matroska. */
   intermediate?: boolean;
   /**
@@ -281,8 +285,10 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
   const hasPost = overlays.watermark || overlays.logo || overlays.captions || overlays.progressBar || endCard > 0;
   const music = overlays.music;
   const clipsTotal = outputDuration(items);
-  const vJoined = endCard ? "vcat" : hasPost ? "vjoined" : "vout";
-  const aJoined = endCard ? "acat" : music ? "ajoined" : "aout";
+  const vOutMain = overlays.outroStinger ? "vmain" : "vout";
+  const aOutMain = overlays.outroStinger ? "amain" : "aout";
+  const vJoined = endCard ? "vcat" : hasPost ? "vjoined" : vOutMain;
+  const aJoined = endCard ? "acat" : music ? "ajoined" : aOutMain;
   if (hasTransitions(items)) {
     // xfade over whole segments makes FFmpeg queue the next segment's frames
     // until the overlap (memory runs out in the browser). Instead each segment
@@ -333,7 +339,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
     filters.push(
       `[vcat]tpad=stop_mode=clone:stop_duration=${secs(endCard)},` +
         `drawbox=x=0:y=0:w=iw:h=ih:color=black@0.55:t=fill:enable='gte(t,${secs(clipsTotal)})'[vjoined]`,
-      `[acat]apad=pad_dur=${secs(endCard)}[${music ? "ajoined" : "aout"}]`,
+      `[acat]apad=pad_dur=${secs(endCard)}[${music ? "ajoined" : aOutMain}]`,
     );
   }
   // Extra inputs (logo, music) come after the clips, in the order they're added.
@@ -374,7 +380,7 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
       filters.push(`[${current}][barsrc]overlay=x='-W+W*t/${secs(total)}':y=H-h:eof_action=pass[vbar]`);
       current = "vbar";
     }
-    filters.push(`[${current}]null[vout]`);
+    filters.push(`[${current}]null[${vOutMain}]`);
   }
 
   if (music) {
@@ -398,11 +404,33 @@ export function buildReencodeArgs(items: ExportItem[], canvas: Canvas, output: s
         `[musin]volume=0.55[muswet]`,
         `[muswet][origkey]sidechaincompress=threshold=0.04:ratio=8:attack=20:release=400[musduck]`,
         `[musdry]volume=0.45[musfloor]`,
-        `[origmix][musduck][musfloor]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95,aformat=channel_layouts=stereo[aout]`,
+        `[origmix][musduck][musfloor]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95,aformat=channel_layouts=stereo[${aOutMain}]`,
       );
     } else {
-      filters.push(`[orig][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95,aformat=channel_layouts=stereo[aout]`);
+      filters.push(`[orig][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95,aformat=channel_layouts=stereo[${aOutMain}]`);
     }
+  }
+
+  if (overlays.outroStinger) {
+    inputs.push("-i", OVERLAY_FILES.stingerLogo);
+    const stingerLogoInput = nextInput++;
+    inputs.push("-i", OVERLAY_FILES.stingerAudio);
+    const stingerAudioInput = nextInput++;
+
+    const logoW = Math.round(Math.min(W, H) * 0.24);
+    const titleSize = Math.max(22, Math.round(Math.min(W, H) * 0.075));
+    const tagSize = Math.max(11, Math.round(Math.min(W, H) * 0.028));
+
+    filters.push(
+      `color=c=0x0a0a0f:s=${W}x${H}:r=${fps}:d=1.500[stingerbg]`,
+      `[${stingerLogoInput}:v]scale=${logoW}:-1,format=rgba[stingerlogo]`,
+      `[stingerbg][stingerlogo]overlay=(W-w)/2:(H-h)/2-${Math.round(H * 0.06)}:format=auto[stingerbase]`,
+      `[stingerbase]drawtext=fontfile=${OVERLAY_FILES.font}:text='AuraCut':fontsize=${titleSize}:fontcolor=white:x=(w-tw)/2:y=(h-th)/2+${Math.round(H * 0.075)},` +
+        `drawtext=fontfile=${OVERLAY_FILES.font}:text='Cut the noise. Create viral.':fontsize=${tagSize}:fontcolor=white@0.65:x=(w-tw)/2:y=(h-th)/2+${Math.round(H * 0.13)},` +
+        `fade=t=in:st=0:d=0.12:color=white,fade=t=out:st=1.28:d=0.22:color=black,format=yuv420p,setsar=1[vstinger]`,
+      `[${stingerAudioInput}:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=end=1.500,asetpts=PTS-STARTPTS[astinger]`,
+      `[vmain][amain][vstinger][astinger]concat=n=2:v=1:a=1[vout][aout]`,
+    );
   }
 
   if (overlays.normalize) {

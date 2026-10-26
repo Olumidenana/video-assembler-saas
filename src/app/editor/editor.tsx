@@ -1257,6 +1257,7 @@ export function Editor({ plan }: { plan: PlanId }) {
       normalize: run.normalize,
       endCard: run.endCard,
       frameExact: run.frameExact,
+      outroStinger: s.outroStinger,
       music:
         composed || anyPartMusic || (music.style === "own" && ownTrack)
           ? async (renderItems: ExportItem[], duration: number) => {

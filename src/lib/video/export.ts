@@ -44,6 +44,8 @@ export interface ExportOptions {
   endCard?: number;
   /** Cut on exact frames of one grid (beat-synced edits). */
   frameExact?: boolean;
+  /** AuraCut signature 1.5s outro stinger with 808 explosion and logo (CapCut style). */
+  outroStinger?: boolean;
   /** Background music for one render's items (composed to fit them), or null for none. */
   music?: (items: ExportItem[], duration: number) => Promise<MusicTrack | null>;
   onProgress?: (ratio: number) => void;
@@ -57,7 +59,7 @@ export interface MusicTrack extends Omit<MusicMix, "path"> {
 
 /** Overlays, reframing and music change the picture or sound, which stream copy can't do. */
 const needsPixels = (o: ExportOptions) =>
-  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music) || Boolean(o.progressBar) || Boolean(o.normalize) || Boolean(o.frameExact);
+  (o.aspect !== undefined && o.aspect !== "original") || Boolean(o.watermark) || Boolean(o.logo) || Boolean(o.captions) || Boolean(o.music) || Boolean(o.progressBar) || Boolean(o.normalize) || Boolean(o.frameExact) || Boolean(o.outroStinger);
 
 /** Which method an export of these items will use. */
 export function chooseMethod(items: ExportItem[], options: ExportOptions): ExportMethod {
@@ -80,6 +82,30 @@ function loadFonts(): Promise<Record<string, Uint8Array>> {
     fontsPromise = null;
   });
   return fontsPromise;
+}
+
+let stingerAssetsPromise: Promise<{ logo: Uint8Array; audio: Uint8Array }> | null = null;
+
+/** The AuraCut outro stinger assets (logo & 808 explosion audio), fetched once and cached. */
+function loadStingerAssets(): Promise<{ logo: Uint8Array; audio: Uint8Array }> {
+  stingerAssetsPromise ??= Promise.all([
+    fetch("/auracut-logo.png")
+      .then((r) => {
+        if (!r.ok) throw new Error("Couldn't load auracut-logo.png");
+        return r.arrayBuffer();
+      })
+      .then((ab) => new Uint8Array(ab)),
+    fetch("/audio/sfx/auracut_stinger.wav")
+      .then((r) => {
+        if (!r.ok) throw new Error("Couldn't load auracut_stinger.wav");
+        return r.arrayBuffer();
+      })
+      .then((ab) => new Uint8Array(ab)),
+  ]).then(([logo, audio]) => ({ logo, audio }));
+  stingerAssetsPromise.catch(() => {
+    stingerAssetsPromise = null;
+  });
+  return stingerAssetsPromise;
 }
 
 async function render(
@@ -108,6 +134,18 @@ async function render(
     ? { path: `${OVERLAY_FILES.music}.${track.ext}`, volume: track.volume, original: track.original, duck: track.duck }
     : undefined;
   if (track && music) overlayFiles[music.path] = track.bytes;
+  if (method === "reencode" && options.outroStinger) {
+    const fonts = await loadFonts();
+    Object.assign(overlayFiles, fonts);
+    try {
+      const stinger = await loadStingerAssets();
+      overlayFiles[OVERLAY_FILES.stingerLogo] = stinger.logo;
+      overlayFiles[OVERLAY_FILES.stingerAudio] = stinger.audio;
+    } catch (err) {
+      console.warn("Could not load stinger assets:", err);
+    }
+  }
+
 
   // Long runs with transitions: render chunks of a few segments first (the
   // browser's FFmpeg deadlocks on bigger transition graphs), then join those.
@@ -172,9 +210,10 @@ async function render(
             normalize: options.normalize,
             endCard,
             frameExact: options.frameExact ? { origin: 0 } : undefined,
+            outroStinger: options.outroStinger,
           }),
           output,
-          { totalDuration: totalDuration + endCard, onProgress },
+          { totalDuration: totalDuration + endCard + (method === "reencode" && options.outroStinger ? 1.5 : 0), onProgress },
           overlayFiles,
         );
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { HardLink } from "@/components/hard-link";
 import { LockIcon } from "@/components/icons";
 import type { PlanLimits } from "@/lib/plans";
@@ -18,6 +19,8 @@ export interface ExportSettings {
   /** Big title over the first seconds; empty text = the viral clip's title. */
   hook: { on: boolean; text: string };
   progressBar: boolean;
+  /** AuraCut signature 1.5s outro stinger with 808 explosion and logo (CapCut style). */
+  outroStinger: boolean;
 }
 
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
@@ -29,6 +32,7 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   music: DEFAULT_MUSIC,
   hook: { on: false, text: "" },
   progressBar: false,
+  outroStinger: true,
 };
 
 const ASPECTS: { id: Aspect; label: string; hint: string }[] = [
@@ -56,6 +60,40 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
     `rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-40 ${
       active ? "border-brand/60 bg-brand/[0.08]" : "border-line hover:border-line-strong"
     }`;
+
+  const audioRef = useRef<{ ctx: AudioContext; src: AudioBufferSourceNode } | null>(null);
+  const [playingStinger, setPlayingStinger] = useState(false);
+
+  const stopStinger = () => {
+    audioRef.current?.src.stop();
+    void audioRef.current?.ctx.close();
+    audioRef.current = null;
+    setPlayingStinger(false);
+  };
+  useEffect(() => () => stopStinger(), []);
+
+  async function previewStinger() {
+    if (playingStinger) return stopStinger();
+    stopStinger();
+    try {
+      const res = await fetch("/audio/sfx/auracut_stinger.wav");
+      if (!res.ok) throw new Error("Could not load stinger audio");
+      const ab = await res.arrayBuffer();
+      const ctx = new AudioContext();
+      const buffer = await ctx.decodeAudioData(ab);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(ctx.destination);
+      src.onended = () => {
+        if (audioRef.current?.src === src) stopStinger();
+      };
+      src.start();
+      audioRef.current = { ctx, src };
+      setPlayingStinger(true);
+    } catch {
+      // ignore
+    }
+  }
 
   const showBrand = !activeTab || activeTab === "export" || activeTab === "tool-brand";
   const showCaptions = !activeTab || activeTab === "export" || activeTab === "tool-captions";
@@ -156,6 +194,32 @@ export function ExportSettingsPanel({ settings, onChange, limits, disabled, logo
           <input type="checkbox" checked={settings.progressBar} onChange={(e) => set({ progressBar: e.target.checked })} className="accent-brand" />
           Progress bar along the bottom
         </label>
+        <div className="flex items-center justify-between rounded-lg border border-brand/30 bg-brand/[0.05] p-3 text-sm">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.outroStinger}
+              onChange={(e) => set({ outroStinger: e.target.checked })}
+              className="accent-brand"
+            />
+            <div>
+              <div className="flex items-center gap-2 font-medium">
+                <span>AuraCut Signature Outro</span>
+                <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand">CapCut-Style Ending</span>
+              </div>
+              <span className="text-xs text-muted">1.5s explosive ending with 808 sub-bass, blade slash, and glowing logo</span>
+            </div>
+          </label>
+          <button
+            type="button"
+            onClick={() => void previewStinger()}
+            className="grid size-8 place-items-center rounded-full bg-surface-3 text-xs hover:bg-brand hover:text-white transition-colors"
+            aria-label={playingStinger ? "Stop stinger preview" : "Preview stinger explosion"}
+            title="Preview Outro Stinger"
+          >
+            {playingStinger ? "■" : "▶"}
+          </button>
+        </div>
       </div>
 
       <div id="tool-music" className={showMusic ? "scroll-mt-32" : "hidden"}>

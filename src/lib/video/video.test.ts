@@ -185,6 +185,32 @@ describe("command builders", () => {
     expect(graph).toContain("atrim=end=13.600");
   });
 
+  it("generates AuraCut signature 1.5s outro stinger with 808 explosion and brand typography", () => {
+    const args = buildReencodeArgs([item({ start: 0, end: 5 })], { width: 720, height: 1280, fps: 30 }, "/out.mp4", {
+      outroStinger: true,
+    });
+    expect(args).toContain("/stinger-logo.png");
+    expect(args).toContain("/auracut-stinger.wav");
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    expect(graph).toContain("color=c=0x0a0a0f:s=720x1280:r=30:d=1.500[stingerbg]");
+    expect(graph).toContain("scale=173:-1,format=rgba[stingerlogo]");
+    expect(graph).toContain("overlay=(W-w)/2:(H-h)/2-77:format=auto[stingerbase]");
+    expect(graph).toContain("text='AuraCut'");
+    expect(graph).toContain("text='Cut the noise. Create viral.'");
+    expect(graph).toContain("atrim=end=1.500,asetpts=PTS-STARTPTS[astinger]");
+    expect(graph).toContain("[vmain][amain][vstinger][astinger]concat=n=2:v=1:a=1[vout][aout]");
+  });
+
+  it("normalizes audio including the outro stinger 808 bass explosion to -14 LUFS", () => {
+    const args = buildReencodeArgs([item({ start: 0, end: 5 })], { width: 720, height: 1280, fps: 30 }, "/out.mp4", {
+      outroStinger: true,
+      normalize: true,
+    });
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    expect(graph).toContain("[vmain][amain][vstinger][astinger]concat=n=2:v=1:a=1[vout][apre]");
+    expect(graph).toMatch(/\[apre\]loudnorm=I=-14:TP=-1\.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo\[aout\]$/);
+  });
+
   it("blends segments with transitions, overlapping them, and hard-cuts where there is none", () => {
     const items = [
       item({ start: 0, end: 4 }),
